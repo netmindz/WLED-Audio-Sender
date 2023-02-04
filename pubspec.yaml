@@ -1,5 +1,5 @@
 name: wled_audio_sender
-description: A new Flutter project.
+description: Flutter / Dart app to capture Audio and send as WLED Audio Sync data
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

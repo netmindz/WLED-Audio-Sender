@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:ffi' as types;
 import 'dart:io';
 import 'dart:math';
 import 'dart:core';
+import 'dart:typed_data';
 
+import 'package:fftea/fftea.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/animation.dart';
@@ -17,6 +20,26 @@ enum Command {
 }
 
 const AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+
+class AudioSyncPacket {
+  // TODO: actually check these dart types return the right number of bytes!
+  String header = "00002";      //  06 Bytes
+  types.Float  sampleRaw; //  04 Bytes  - either "sampleRaw" or "rawSampleAgc" depending on soundAgc setting
+  types.Float  sampleSmth; //  04 Bytes  - either "sampleAvg" or "sampleAgc" depending on soundAgc setting
+  types.Uint8  samplePeak; //  01 Bytes  - 0 no peak; >=1 peak detected. In future, this will also provide peak Magnitude
+  types.Uint8 reserved1 = types.Uint8(); //  01 Bytes  - for future extensions - not used yet
+  List fftResult = []; //  16 Bytes
+  types.Float FFT_Magnitude; //  04 Bytes
+  types.Float FFT_MajorPeak; //  04 Bytes
+
+  AudioSyncPacket(this.sampleRaw, this.sampleSmth, this.samplePeak,
+      this.fftResult, this.FFT_Magnitude, this.FFT_MajorPeak);
+
+  List<int> asBytes() {
+    return [];
+  }
+}
+
 
 void main() => runApp(WLEDAudioSenderApp());
 
@@ -95,15 +118,14 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     // Default option. Set to false to disable request permission dialogue
     MicStream.shouldRequestPermission(true);
 
-
     RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
         .then((RawDatagramSocket s) {
       print("UDP Socket ready to send to group "
           "${multicastAddress.address}:${multicastPort}");
-        socket = s;
+      socket = s;
     });
 
-          stream = await MicStream.microphone(
+    stream = await MicStream.microphone(
         audioSource: AudioSource.DEFAULT,
         sampleRate: 1000 * (rng.nextInt(50) + 30),
         channelConfig: ChannelConfig.CHANNEL_IN_MONO,
@@ -130,7 +152,33 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     if (page == 0)
       _calculateWaveSamples(samples);
     else if (page == 1) _calculateIntensitySamples(samples);
-      socket?.send(samples, multicastAddress, multicastPort);
+    List<double> audio = [];
+    List<int> tmp = samples;
+    tmp.forEach((element) {
+      audio.add(element.toDouble());
+    });
+
+    // TODO: actually configure the FFT properly
+    final chunkSize = 200;
+    final stft = STFT(chunkSize, Window.hanning(chunkSize));
+
+    final spectrogram = <Float64List>[];
+    stft.run(audio, (Float64x2List freq) {
+      spectrogram.add(freq.discardConjugates().magnitudes());
+    });
+    print("bin count = ");
+    print(spectrogram.length);
+    // print("sample count = ");
+    // print(audio.length);
+    AudioSyncPacket packet = new AudioSyncPacket(
+        types.Float(),
+        new types.Float(),
+        new types.Uint8(),
+        spectrogram,
+        new types.Float(),
+        new types.Float());
+
+    socket?.send(packet.fftResult.cast<int>(), multicastAddress, multicastPort);
   }
 
   void _calculateWaveSamples(samples) {
@@ -154,7 +202,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       }
       first = !first;
     }
-    print(visibleSamples);
+    // print(visibleSamples);
   }
 
   void _calculateIntensitySamples(samples) {
@@ -224,7 +272,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       theme: ThemeData.dark(),
       home: Scaffold(
           appBar: AppBar(
-            title: const Text('Plugin: mic_stream :: Debug'),
+            title: const Text('WLED Audio Sender'),
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: _controlMicStream,
