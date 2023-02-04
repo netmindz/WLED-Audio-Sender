@@ -28,7 +28,7 @@ class AudioSyncPacket {
   types.Float  sampleSmth; //  04 Bytes  - either "sampleAvg" or "sampleAgc" depending on soundAgc setting
   types.Uint8  samplePeak; //  01 Bytes  - 0 no peak; >=1 peak detected. In future, this will also provide peak Magnitude
   types.Uint8 reserved1 = types.Uint8(); //  01 Bytes  - for future extensions - not used yet
-  List fftResult = []; //  16 Bytes
+  List<Float64List> fftResult = []; //  16 Bytes
   types.Float FFT_Magnitude; //  04 Bytes
   types.Float FFT_MajorPeak; //  04 Bytes
 
@@ -36,7 +36,12 @@ class AudioSyncPacket {
       this.fftResult, this.FFT_Magnitude, this.FFT_MajorPeak);
 
   List<int> asBytes() {
-    return [];
+    List<int> bytes = [];
+    bytes.addAll(header.codeUnits);
+    fftResult.forEach((element) { 
+      bytes.addAll(e.toString().codeUnits); // todo really not sure about this
+    });
+    return bytes;
   }
 }
 
@@ -178,7 +183,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
         new types.Float(),
         new types.Float());
 
-    socket?.send(packet.fftResult.cast<int>(), multicastAddress, multicastPort);
+    socket?.send(packet.asBytes(), multicastAddress, multicastPort);
   }
 
   void _calculateWaveSamples(samples) {
