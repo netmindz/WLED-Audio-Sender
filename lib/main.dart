@@ -28,11 +28,14 @@ class WLEDAudioSenderApp extends StatefulWidget {
 class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Stream? stream;
+  RawDatagramSocket? socket;
   late StreamSubscription listener;
   List<int>? currentSamples = [];
   List<int> visibleSamples = [];
   int? localMax;
   int? localMin;
+  InternetAddress multicastAddress = new InternetAddress('239.0.0.1');
+  int multicastPort = 12345; // TODO: Change to 11988 once we have working system, not break my current setup
 
   Random rng = new Random();
 
@@ -92,7 +95,15 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     // Default option. Set to false to disable request permission dialogue
     MicStream.shouldRequestPermission(true);
 
-    stream = await MicStream.microphone(
+
+    RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
+        .then((RawDatagramSocket s) {
+      print("UDP Socket ready to send to group "
+          "${multicastAddress.address}:${multicastPort}");
+        socket = s;
+    });
+
+          stream = await MicStream.microphone(
         audioSource: AudioSource.DEFAULT,
         sampleRate: 1000 * (rng.nextInt(50) + 30),
         channelConfig: ChannelConfig.CHANNEL_IN_MONO,
@@ -112,15 +123,6 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     });
     visibleSamples = [];
     listener = stream!.listen(_calculateSamples);
-
-    InternetAddress multicastAddress = new InternetAddress('239.0.0.1');
-    int multicastPort = 11988;
-    RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
-          .then((RawDatagramSocket s) {
-      print("UDP Socket ready to send to group "
-          "${multicastAddress.address}:${multicastPort}");
-    });
-
     return true;
   }
 
@@ -128,6 +130,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     if (page == 0)
       _calculateWaveSamples(samples);
     else if (page == 1) _calculateIntensitySamples(samples);
+      socket?.send(samples, multicastAddress, multicastPort);
   }
 
   void _calculateWaveSamples(samples) {
