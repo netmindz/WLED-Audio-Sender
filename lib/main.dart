@@ -1,201 +1,396 @@
-import 'dart:ffi';
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:io';
+import 'dart:math';
+import 'dart:core';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/animation.dart';
+import 'package:flutter/rendering.dart';
+
 import 'package:mic_stream/mic_stream.dart';
 
-// import 'package:fftea/fftea.dart';
-import 'package:record/record.dart';
-
-import 'dart:io';
-import 'dart:async';
-import 'dart:math';
-import 'dart:math' as math;
-
-Float64List normalizeRmsVolume(List<double> a, double target) {
-  final b = Float64List.fromList(a);
-  double squareSum = 0;
-  for (final x in b) {
-    squareSum += x * x;
-  }
-  double factor = target * math.sqrt(b.length / squareSum);
-  for (int i = 0; i < b.length; ++i) {
-    b[i] *= factor;
-  }
-  return b;
+enum Command {
+  start,
+  stop,
+  change,
 }
 
-Uint64List linSpace(int end, int steps) {
-  final a = Uint64List(steps);
-  for (int i = 1; i < steps; ++i) {
-    a[i - 1] = (end * i) ~/ steps;
-  }
-  a[steps - 1] = end;
-  return a;
+const AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+
+void main() => runApp(WLEDAudioSenderApp());
+
+class WLEDAudioSenderApp extends StatefulWidget {
+  @override
+  _WLEDAudioSenderAppState createState() => _WLEDAudioSenderAppState();
 }
 
-String gradient(double power) {
-  const scale = 2;
-  const levels = [' ', '░', '▒', '▓', '█'];
-  int index = math.log((power * levels.length) * scale).floor();
-  if (index < 0) index = 0;
-  if (index >= levels.length) index = levels.length - 1;
-  return levels[index];
-}
+class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  Stream? stream;
+  late StreamSubscription listener;
+  List<int>? currentSamples = [];
+  List<int> visibleSamples = [];
+  int? localMax;
+  int? localMin;
 
-void main() {
-  InternetAddress multicastAddress = new InternetAddress('239.0.0.1');
-  int multicastPort = 11988;
   Random rng = new Random();
-  RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
-      .then((RawDatagramSocket s) {
-    print("UDP Socket ready to send to group "
-        "${multicastAddress.address}:${multicastPort}");
 
-    new Timer.periodic(new Duration(seconds: 1), (Timer t) {
-      //Send a random number out every second
-      String msg = '${rng.nextInt(1000)}';
-      stdout.write("Sending $msg  \r");
-      s.send('$msg\n'.codeUnits, multicastAddress, multicastPort);
+  // Refreshes the Widget for every possible tick to force a rebuild of the sound wave
+  late AnimationController controller;
+
+  Color _iconColor = Colors.white;
+  bool isRecording = false;
+  bool memRecordingState = false;
+  late bool isActive;
+  DateTime? startTime;
+
+  int page = 0;
+  List state = ["SoundWavePage", "IntensityWavePage", "InformationPage"];
+
+  @override
+  void initState() {
+    print("Init application");
+    super.initState();
+    WidgetsBinding.instance!.addObserver(this);
+    setState(() {
+      initPlatformState();
     });
-  });
+  }
 
-  Stream<Uint8List>? stream = await MicStream.microphone(
-    sampleRate: 32000,
-    audioFormat: AudioFormat.ENCODING_PCM_8BIT,
-  );
-  int? bufferSize = await MicStream.bufferSize;
-  StreamSubscription<List<int>> listener = stream!.listen((sample) async {
-    // handle audio here
-  });
+  void _controlPage(int index) => setState(() => page = index);
 
-  final audio = normalizeRmsVolume(wav.toMono(), 0.3);
-  const chunkSize = 2048;
-  const buckets = 120;
-  final stft = STFT(chunkSize, Window.hanning(chunkSize));
-  Uint64List? logItr;
-  stft.run(
-    audio,
-    (Float64x2List chunk) {
-      final amp = chunk.discardConjugates().magnitudes();
-      logItr ??= linSpace(amp.length, buckets);
-      int i0 = 0;
-      for (final i1 in logItr!) {
-        double power = 0;
-        if (i1 != i0) {
-          for (int i = i0; i < i1; ++i) {
-            power += amp[i];
-          }
-          power /= i1 - i0;
-        }
-        stdout.write(gradient(power));
-        i0 = i1;
+  // Responsible for switching between recording / idle state
+  void _controlMicStream({Command command: Command.change}) async {
+    switch (command) {
+      case Command.change:
+        _changeListening();
+        break;
+      case Command.start:
+        _startListening();
+        break;
+      case Command.stop:
+        _stopListening();
+        break;
+    }
+  }
+
+  Future<bool> _changeListening() async =>
+      !isRecording ? await _startListening() : _stopListening();
+
+  late int bytesPerSample;
+  late int samplesPerSecond;
+
+  Future<bool> _startListening() async {
+    print("START LISTENING");
+    if (isRecording) return false;
+    // if this is the first time invoking the microphone()
+    // method to get the stream, we don't yet have access
+    // to the sampleRate and bitDepth properties
+    print("wait for stream");
+
+    // Default option. Set to false to disable request permission dialogue
+    MicStream.shouldRequestPermission(true);
+
+    stream = await MicStream.microphone(
+        audioSource: AudioSource.DEFAULT,
+        sampleRate: 1000 * (rng.nextInt(50) + 30),
+        channelConfig: ChannelConfig.CHANNEL_IN_MONO,
+        audioFormat: AUDIO_FORMAT);
+    // after invoking the method for the first time, though, these will be available;
+    // It is not necessary to setup a listener first, the stream only needs to be returned first
+    print(
+        "Start Listening to the microphone, sample rate is ${await MicStream.sampleRate}, bit depth is ${await MicStream.bitDepth}, bufferSize: ${await MicStream.bufferSize}");
+    bytesPerSample = (await MicStream.bitDepth)! ~/ 8;
+    samplesPerSecond = (await MicStream.sampleRate)!.toInt();
+    localMax = null;
+    localMin = null;
+
+    setState(() {
+      isRecording = true;
+      startTime = DateTime.now();
+    });
+    visibleSamples = [];
+    listener = stream!.listen(_calculateSamples);
+
+    InternetAddress multicastAddress = new InternetAddress('239.0.0.1');
+    int multicastPort = 11988;
+    RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
+          .then((RawDatagramSocket s) {
+      print("UDP Socket ready to send to group "
+          "${multicastAddress.address}:${multicastPort}");
+    });
+
+    return true;
+  }
+
+  void _calculateSamples(samples) {
+    if (page == 0)
+      _calculateWaveSamples(samples);
+    else if (page == 1) _calculateIntensitySamples(samples);
+  }
+
+  void _calculateWaveSamples(samples) {
+    bool first = true;
+    visibleSamples = [];
+    int tmp = 0;
+    for (int sample in samples) {
+      if (sample > 128) sample -= 255;
+      if (first) {
+        tmp = sample * 128;
+      } else {
+        tmp += sample;
+        visibleSamples.add(tmp);
+
+        localMax ??= visibleSamples.last;
+        localMin ??= visibleSamples.last;
+        localMax = max(localMax!, visibleSamples.last);
+        localMin = min(localMin!, visibleSamples.last);
+
+        tmp = 0;
       }
-      stdout.write('\n');
-    },
-    chunkSize ~/ 2,
-  );
+      first = !first;
+    }
+    print(visibleSamples);
+  }
 
-  runApp(const MyApp());
-}
+  void _calculateIntensitySamples(samples) {
+    currentSamples ??= [];
+    int currentSample = 0;
+    eachWithIndex(samples, (i, int sample) {
+      currentSample += sample;
+      if ((i % bytesPerSample) == bytesPerSample - 1) {
+        currentSamples!.add(currentSample);
+        currentSample = 0;
+      }
+    });
 
-class audioSyncPacket {
-// TODO: actually check these dart types return the right number of bytes!
-  // char    header[6];      //  06 Bytes
-  Float
-      sampleRaw; //  04 Bytes  - either "sampleRaw" or "rawSampleAgc" depending on soundAgc setting
-  Float
-      sampleSmth; //  04 Bytes  - either "sampleAvg" or "sampleAgc" depending on soundAgc setting
-  Uint8
-      samplePeak; //  01 Bytes  - 0 no peak; >=1 peak detected. In future, this will also provide peak Magnitude
-  Uint8 reserved1; //  01 Bytes  - for future extensions - not used yet
-  List<Uint8> fftResult = List<Uint8>.filled(16, 0 as Uint8); //  16 Bytes
-  Float FFT_Magnitude; //  04 Bytes
-  Float FFT_MajorPeak; //  04 Bytes
+    if (currentSamples!.length >= samplesPerSecond / 10) {
+      visibleSamples
+          .add(currentSamples!.map((i) => i).toList().reduce((a, b) => a + b));
+      localMax ??= visibleSamples.last;
+      localMin ??= visibleSamples.last;
+      localMax = max(localMax!, visibleSamples.last);
+      localMin = min(localMin!, visibleSamples.last);
+      currentSamples = [];
+      setState(() {});
+    }
+  }
 
-  audioSyncPacket(this.sampleRaw, this.sampleSmth, this.samplePeak,
-      this.reserved1, this.fftResult, this.FFT_Magnitude, this.FFT_MajorPeak);
-}
+  bool _stopListening() {
+    if (!isRecording) return false;
+    print("Stop Listening to the microphone");
+    listener.cancel();
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+    setState(() {
+      isRecording = false;
+      currentSamples = null;
+      startTime = null;
+    });
+    return true;
+  }
 
-  // This widget is the root of your application.
+  // Platform messages are asynchronous, so we initialize in an async method.
+  Future<void> initPlatformState() async {
+    if (!mounted) return;
+    isActive = true;
+
+    Statistics(false);
+
+    controller =
+        AnimationController(duration: Duration(seconds: 1), vsync: this)
+          ..addListener(() {
+            if (isRecording) setState(() {});
+          })
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed)
+              controller.reverse();
+            else if (status == AnimationStatus.dismissed) controller.forward();
+          })
+          ..forward();
+  }
+
+  Color _getBgColor() => (isRecording) ? Colors.red : Colors.cyan;
+
+  Icon _getIcon() =>
+      (isRecording) ? Icon(Icons.stop) : Icon(Icons.keyboard_voice);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: const MyHomePage(title: 'WLED Audio Sender'),
+      theme: ThemeData.dark(),
+      home: Scaffold(
+          appBar: AppBar(
+            title: const Text('Plugin: mic_stream :: Debug'),
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: _controlMicStream,
+            child: _getIcon(),
+            foregroundColor: _iconColor,
+            backgroundColor: _getBgColor(),
+            tooltip: (isRecording) ? "Stop recording" : "Start recording",
+          ),
+          bottomNavigationBar: BottomNavigationBar(
+            items: [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.broken_image),
+                label: "Sound Wave",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.broken_image),
+                label: "Intensity Wave",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.view_list),
+                label: "Statistics",
+              )
+            ],
+            backgroundColor: Colors.black26,
+            elevation: 20,
+            currentIndex: page,
+            onTap: _controlPage,
+          ),
+          body: (page == 0 || page == 1)
+              ? CustomPaint(
+                  painter: WavePainter(
+                    samples: visibleSamples,
+                    color: _getBgColor(),
+                    localMax: localMax,
+                    localMin: localMin,
+                    context: context,
+                  ),
+                )
+              : Statistics(
+                  isRecording,
+                  startTime: startTime,
+                )),
     );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      isActive = true;
+      print("Resume app");
+
+      _controlMicStream(
+          command: memRecordingState ? Command.start : Command.stop);
+    } else if (isActive) {
+      memRecordingState = isRecording;
+      _controlMicStream(command: Command.stop);
+
+      print("Pause app");
+      isActive = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    listener.cancel();
+    controller.dispose();
+    WidgetsBinding.instance!.removeObserver(this);
+    super.dispose();
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class WavePainter extends CustomPainter {
+  int? localMax;
+  int? localMin;
+  List<int>? samples;
+  late List<Offset> points;
+  Color? color;
+  BuildContext? context;
+  Size? size;
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
+  // Set max val possible in stream, depending on the config
+  // int absMax = 255*4; //(AUDIO_FORMAT == AudioFormat.ENCODING_PCM_8BIT) ? 127 : 32767;
+  // int absMin; //(AUDIO_FORMAT == AudioFormat.ENCODING_PCM_8BIT) ? 127 : 32767;
 
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  WavePainter(
+      {this.samples, this.color, this.context, this.localMax, this.localMin});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  void paint(Canvas canvas, Size? size) {
+    this.size = context!.size;
+    size = this.size;
+
+    Paint paint = new Paint()
+      ..color = color!
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    if (samples!.length == 0) return;
+
+    points = toPoints(samples);
+
+    Path path = new Path();
+    path.addPolygon(points, false);
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldPainting) => true;
+
+  // Maps a list of ints and their indices to a list of points on a cartesian grid
+  List<Offset> toPoints(List<int>? samples) {
+    List<Offset> points = [];
+    if (samples == null)
+      samples = List<int>.filled(size!.width.toInt(), (0.5).toInt());
+    double pixelsPerSample = size!.width / samples.length;
+    for (int i = 0; i < samples.length; i++) {
+      var point = Offset(
+          i * pixelsPerSample,
+          0.5 *
+              size!.height *
+              pow((samples[i] - localMin!) / (localMax! - localMin!), 5));
+      points.add(point);
+    }
+    return points;
+  }
+
+  double project(int val, int max, double height) {
+    double waveHeight =
+        (max == 0) ? val.toDouble() : (val / max) * 0.5 * height;
+    return waveHeight + 0.5 * height;
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class Statistics extends StatelessWidget {
+  final bool isRecording;
+  final DateTime? startTime;
+
+  final String url = "https://github.com/anarchuser/mic_stream";
+
+  Statistics(this.isRecording, {this.startTime});
+
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+    return ListView(children: <Widget>[
+      ListTile(
+          leading: Icon(Icons.title),
+          title: Text("Microphone Streaming Example App")),
+      ListTile(
+        leading: Icon(Icons.keyboard_voice),
+        title: Text((isRecording ? "Recording" : "Not recording")),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-        ),
-      ),
-    );
+      ListTile(
+          leading: Icon(Icons.access_time),
+          title: Text((isRecording
+              ? DateTime.now().difference(startTime!).toString()
+              : "Not recording"))),
+    ]);
   }
+}
+
+Iterable<T> eachWithIndex<E, T>(
+    Iterable<T> items, E Function(int index, T item) f) {
+  var index = 0;
+
+  for (final item in items) {
+    f(index, item);
+    index = index + 1;
+  }
+
+  return items;
 }
