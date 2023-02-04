@@ -1,7 +1,120 @@
+import 'dart:ffi';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:mic_stream/mic_stream.dart';
+
+// import 'package:fftea/fftea.dart';
+import 'package:record/record.dart';
+
+import 'dart:io';
+import 'dart:async';
+import 'dart:math';
+import 'dart:math' as math;
+
+Float64List normalizeRmsVolume(List<double> a, double target) {
+  final b = Float64List.fromList(a);
+  double squareSum = 0;
+  for (final x in b) {
+    squareSum += x * x;
+  }
+  double factor = target * math.sqrt(b.length / squareSum);
+  for (int i = 0; i < b.length; ++i) {
+    b[i] *= factor;
+  }
+  return b;
+}
+
+Uint64List linSpace(int end, int steps) {
+  final a = Uint64List(steps);
+  for (int i = 1; i < steps; ++i) {
+    a[i - 1] = (end * i) ~/ steps;
+  }
+  a[steps - 1] = end;
+  return a;
+}
+
+String gradient(double power) {
+  const scale = 2;
+  const levels = [' ', '░', '▒', '▓', '█'];
+  int index = math.log((power * levels.length) * scale).floor();
+  if (index < 0) index = 0;
+  if (index >= levels.length) index = levels.length - 1;
+  return levels[index];
+}
 
 void main() {
+  InternetAddress multicastAddress = new InternetAddress('239.0.0.1');
+  int multicastPort = 11988;
+  Random rng = new Random();
+  RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
+      .then((RawDatagramSocket s) {
+    print("UDP Socket ready to send to group "
+        "${multicastAddress.address}:${multicastPort}");
+
+    new Timer.periodic(new Duration(seconds: 1), (Timer t) {
+      //Send a random number out every second
+      String msg = '${rng.nextInt(1000)}';
+      stdout.write("Sending $msg  \r");
+      s.send('$msg\n'.codeUnits, multicastAddress, multicastPort);
+    });
+  });
+
+  Stream<Uint8List>? stream = await MicStream.microphone(
+    sampleRate: 32000,
+    audioFormat: AudioFormat.ENCODING_PCM_8BIT,
+  );
+  int? bufferSize = await MicStream.bufferSize;
+  StreamSubscription<List<int>> listener = stream!.listen((sample) async {
+    // handle audio here
+  });
+
+  final audio = normalizeRmsVolume(wav.toMono(), 0.3);
+  const chunkSize = 2048;
+  const buckets = 120;
+  final stft = STFT(chunkSize, Window.hanning(chunkSize));
+  Uint64List? logItr;
+  stft.run(
+    audio,
+    (Float64x2List chunk) {
+      final amp = chunk.discardConjugates().magnitudes();
+      logItr ??= linSpace(amp.length, buckets);
+      int i0 = 0;
+      for (final i1 in logItr!) {
+        double power = 0;
+        if (i1 != i0) {
+          for (int i = i0; i < i1; ++i) {
+            power += amp[i];
+          }
+          power /= i1 - i0;
+        }
+        stdout.write(gradient(power));
+        i0 = i1;
+      }
+      stdout.write('\n');
+    },
+    chunkSize ~/ 2,
+  );
+
   runApp(const MyApp());
+}
+
+class audioSyncPacket {
+// TODO: actually check these dart types return the right number of bytes!
+  // char    header[6];      //  06 Bytes
+  Float
+      sampleRaw; //  04 Bytes  - either "sampleRaw" or "rawSampleAgc" depending on soundAgc setting
+  Float
+      sampleSmth; //  04 Bytes  - either "sampleAvg" or "sampleAgc" depending on soundAgc setting
+  Uint8
+      samplePeak; //  01 Bytes  - 0 no peak; >=1 peak detected. In future, this will also provide peak Magnitude
+  Uint8 reserved1; //  01 Bytes  - for future extensions - not used yet
+  List<Uint8> fftResult = List<Uint8>.filled(16, 0 as Uint8); //  16 Bytes
+  Float FFT_Magnitude; //  04 Bytes
+  Float FFT_MajorPeak; //  04 Bytes
+
+  audioSyncPacket(this.sampleRaw, this.sampleSmth, this.samplePeak,
+      this.reserved1, this.fftResult, this.FFT_Magnitude, this.FFT_MajorPeak);
 }
 
 class MyApp extends StatelessWidget {
@@ -24,7 +137,7 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'WLED Audio Sender'),
     );
   }
 }
@@ -48,19 +161,6 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called, for instance as done
@@ -94,22 +194,8 @@ class _MyHomePageState extends State<MyHomePage> {
           // axis because Columns are vertical (the cross axis would be
           // horizontal).
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
