@@ -107,6 +107,20 @@ For automated builds via GitHub Actions, configure these repository secrets:
 
 **Note**: Never commit `key.properties` or keystore files to version control.
 
+## Privacy Policy
+
+WLED Audio Sender requires microphone access to capture and process audio for synchronization with WLED devices. We take your privacy seriously:
+
+- **No data collection**: Audio is processed locally and never recorded or stored
+- **No internet transmission**: Audio data is only sent to WLED devices on your local network
+- **No third-party services**: No analytics, tracking, or external services are used
+- **Open source**: Full transparency - review our code anytime
+
+For complete details, see our [Privacy Policy](PRIVACY_POLICY.md).
+
+**Privacy Policy URL for Google Play Store:**  
+`https://github.com/netmindz/WLED-Audio-Sender/blob/main/PRIVACY_POLICY.md`
+
 ## License
 
 This project follows the same license as the WLED project.
