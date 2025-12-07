@@ -49,28 +49,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Setup signing
+      - name: Decode Android keystore
+        # The keystore needs to be stored as a base64 encoded secret
+        # To create: base64 -i your-keystore.jks | pbcopy (macOS) or base64 -w 0 your-keystore.jks (Linux)
+        # Then add as secret ANDROID_KEYSTORE_BASE64
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          else
+            echo "Warning: ANDROID_KEYSTORE_BASE64 secret not set. Build may fail if keystore is required."
+          fi
+
+      - name: Create key.properties
+        # Required secrets:
+        # ANDROID_KEYSTORE_PASSWORD - Password for the keystore
+        # ANDROID_KEY_ALIAS - Alias of the key in the keystore
+        # ANDROID_KEY_PASSWORD - Password for the key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
-          # Create the keystore file from base64
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release-keystore.jks
-            
-            # Create key.properties file
-            cat > android/key.properties << EOF
-          storeFile=release-keystore.jks
-          storePassword="$STORE_PASSWORD"
-          keyAlias="$KEY_ALIAS"
-          keyPassword="$KEY_PASSWORD"
+          cat > android/key.properties <<EOF
+          storePassword=${KEYSTORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          storeFile=release.keystore
           EOF
-            cat android/key.properties
-          else
-            echo "Warning: Signing secrets not configured. Build will not be signed for release."
-          fi
 
       - name: Install dependencies
         run: flutter pub get
