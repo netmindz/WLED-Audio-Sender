@@ -7,7 +7,7 @@
 **Project Type**: Flutter mobile/desktop application  
 **Primary Language**: Dart  
 **Target Platforms**: Android, iOS, macOS  
-**Repository Size**: Small (~600 lines of code in main.dart)  
+**Repository Size**: Small (entire app in single ~600-line file)  
 **App ID**: net.netmindz.wled.sender
 
 ## Key Technologies & Frameworks
@@ -121,7 +121,7 @@ flutter build macos --release
 - `README.md`: User-facing documentation with protocol details and build instructions
 
 ### Source Code
-- `lib/main.dart`: **ENTIRE APPLICATION** - All app logic in single file (623 lines)
+- `lib/main.dart`: **ENTIRE APPLICATION** - All app logic in single file
   - Main application entry point
   - Audio capture and processing
   - FFT analysis (512-point FFT with Hanning window)
