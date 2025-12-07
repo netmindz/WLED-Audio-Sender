@@ -1,4 +1,5 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, avoid_print
+import 'dart:convert';
 import 'dart:html' as html;
 import 'udp_sender.dart';
 
@@ -59,7 +60,7 @@ class WebUdpSender implements UdpSender {
         'port': port,
         'data': data,
       };
-      _webSocket!.send(payload.toString());
+      _webSocket!.send(jsonEncode(payload));
     }
     // If no WebSocket, packets are silently dropped (visualization still works)
   }
