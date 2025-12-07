@@ -163,7 +163,7 @@ jobs:
       - name: Create ZIP
         run: |
           cd build/macos/Build/Products/Release
-          zip -r ${{ env.APP_NAME }}-macos.zip Runner.app
+          zip -r ${{ env.APP_NAME }}-macos.zip wled_audio_sender.app
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
