@@ -44,3 +44,7 @@ app.*.map.json
 /android/app/release
 
 /android/local.properties
+
+# CodeQL build artifacts
+_codeql_detected_source_root
+**/_codeql_build_dir/
