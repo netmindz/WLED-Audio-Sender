@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.wled_audio_sender">
+    package="net.netmindz.wled.sender">
    <application
         android:label="wled_audio_sender"
         android:name="${applicationName}"
