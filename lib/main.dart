@@ -1,3 +1,29 @@
+/// WLED Audio Sender - Flutter Application
+/// 
+/// This application captures audio from the device microphone, processes it,
+/// and sends it as WLED Audio Sync v2 packets via UDP multicast.
+/// 
+/// Key features:
+/// - Real-time audio capture from microphone
+/// - FFT analysis with 16 frequency bins
+/// - Peak detection and sample smoothing
+/// - UDP multicast transmission to WLED devices (port 11988)
+/// 
+/// WLED Audio Sync v2 Packet Format (52 bytes total):
+/// - Header: "00002" (6 bytes)
+/// - Sample Raw: float32 (4 bytes) - Current audio level
+/// - Sample Smooth: float32 (4 bytes) - Smoothed audio level
+/// - Sample Peak: uint8 (1 byte) - Peak detection flag
+/// - Reserved: uint8 (1 byte) - Reserved for future use
+/// - FFT Result: 16 x uint8 (16 bytes) - Frequency bins
+/// - FFT Magnitude: float32 (4 bytes) - Overall FFT magnitude
+/// - FFT Major Peak: float32 (4 bytes) - Dominant frequency in Hz
+/// 
+/// References:
+/// - https://mm.kno.wled.ge/soundreactive/sync/#v2-format-wled-version-0140-including-moonmodules-fork
+/// - https://github.com/netmindz/WLED-MM/blob/mdev/usermods/audioreactive/audio_reactive.h
+/// - https://github.com/netmindz/WLED-sync
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -17,8 +43,11 @@ enum Command {
 
 const audioFormat = AudioFormat.ENCODING_PCM_16BIT;
 
-// WLED Audio Sync v2 packet structure
-// Total size: 52 bytes
+/// WLED Audio Sync v2 packet structure
+/// Total size: 52 bytes
+/// 
+/// This class encapsulates audio data in the format expected by WLED devices
+/// for real-time audio reactive effects.
 class AudioSyncPacket {
   String header = "00002";      // 06 Bytes - header identifier
   double sampleRaw;             // 04 Bytes - raw sample value
@@ -186,6 +215,17 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     return true;
   }
 
+  /// Process audio samples and send WLED packets
+  /// 
+  /// This method:
+  /// 1. Converts raw PCM samples to normalized audio data
+  /// 2. Calculates RMS (Root Mean Square) for audio level
+  /// 3. Applies smoothing filter
+  /// 4. Detects audio peaks
+  /// 5. Performs FFT analysis with 512-point window
+  /// 6. Extracts 16 frequency bins using logarithmic spacing
+  /// 7. Finds dominant frequency (major peak)
+  /// 8. Sends WLED Audio Sync v2 packet via UDP multicast
   void _calculateSamples(samples) {
     if (page == 0) {
       _calculateWaveSamples(samples);
@@ -217,7 +257,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     double rms = sqrt(sumSquares / audio.length);
     double sampleRaw = rms * 255.0; // Scale to 0-255 range
     
-    // Apply smoothing
+    // Apply exponential smoothing filter
     sampleSmoothed = sampleSmoothed * smoothingFactor + 
                      sampleRaw * (1.0 - smoothingFactor);
     
