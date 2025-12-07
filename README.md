@@ -80,9 +80,9 @@ To build a signed Android release, you need to configure signing credentials:
 2. **Create `android/key.properties`** with your keystore details:
    ```properties
    storeFile=release-keystore.jks
-   storePassword=<your_store_password>
-   keyAlias=<your_key_alias>
-   keyPassword=<your_key_password>
+   storePassword="<your_store_password>"
+   keyAlias="<your_key_alias>"
+   keyPassword="<your_key_password>"
    ```
 
 3. **Build the release**:
