@@ -19,6 +19,8 @@ jobs:
   build-android:
     name: Build Android Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Required to checkout code
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -84,6 +86,8 @@ jobs:
   build-ios:
     name: Build iOS Release
     runs-on: macos-latest
+    permissions:
+      contents: read  # Required to checkout code
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,6 +122,8 @@ jobs:
   build-macos:
     name: Build macOS Release
     runs-on: macos-latest
+    permissions:
+      contents: read  # Required to checkout code
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -147,11 +153,47 @@ jobs:
           path: build/macos/Build/Products/Release/${{ env.APP_NAME }}-macos.zip
           if-no-files-found: error
 
+  build-web:
+    name: Build Web Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # Required to checkout code
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Web
+        run: flutter build web --release
+
+      - name: Create ZIP
+        run: |
+          cd build/web
+          zip -r ../../${{ env.APP_NAME }}-web.zip .
+
+      - name: Upload Web app
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-app
+          path: ${{ env.APP_NAME }}-web.zip
+          if-no-files-found: error
+
   create-release:
     name: Create GitHub Release
-    needs: [build-android, build-ios, build-macos]
+    needs: [build-android, build-ios, build-macos, build-web]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write  # Required to create releases
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -166,6 +208,7 @@ jobs:
             artifacts/android-appbundle/app-release.aab
             artifacts/ios-ipa/app-release.ipa
             artifacts/macos-app/${{ env.APP_NAME }}-macos.zip
+            artifacts/web-app/${{ env.APP_NAME }}-web.zip
           draft: false
           prerelease: false
         env:

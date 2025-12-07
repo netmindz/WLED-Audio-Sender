@@ -39,13 +39,37 @@ The app sends 52-byte packets with the following structure:
 
 ## Usage
 
-1. Install Flutter SDK (version 3.38.4 or higher)
+### Mobile & Desktop
+
+1. Install Flutter SDK (version 3.16.0 or higher)
 2. Clone this repository
 3. Run `flutter pub get` to install dependencies
 4. Connect your Android/iOS device or start an emulator
 5. Run `flutter run` to start the app
 6. Tap the microphone button to start/stop audio capture
 7. Audio will be sent to WLED devices on your network
+
+### Web Browser
+
+**Building for Web:**
+```bash
+flutter build web --release
+```
+
+The built web app will be in `build/web/` directory. You can serve this directory using any web server.
+
+**Quick Test with Flutter:**
+```bash
+flutter run -d chrome
+```
+
+**Web Platform Limitations:**
+- ⚠️ Web browsers cannot send UDP multicast packets directly due to security restrictions
+- Audio capture and visualization work normally
+- UDP packets are not sent by default in web browsers
+- For actual UDP transmission from web, you would need to set up a WebSocket relay server
+
+**Note:** When running in a web browser, make sure to grant microphone permissions when prompted.
 
 ## Dependencies
 
@@ -65,6 +89,8 @@ The app sends 52-byte packets with the following structure:
 Currently tested on:
 - Android
 - iOS
+- macOS
+- Web (Chrome, Firefox, Safari, Edge)
 
 ## Building for Release
 

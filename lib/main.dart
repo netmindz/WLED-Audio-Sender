@@ -25,7 +25,6 @@
 /// - https://github.com/netmindz/WLED-sync
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 import 'dart:core';
 import 'dart:typed_data';
@@ -34,6 +33,12 @@ import 'package:fftea/fftea.dart';
 import 'package:flutter/material.dart';
 
 import 'package:mic_stream/mic_stream.dart';
+
+// Platform-specific UDP sender
+import 'udp_sender.dart';
+import 'udp_sender_stub.dart'
+    if (dart.library.io) 'udp_sender_native.dart'
+    if (dart.library.html) 'udp_sender_web.dart';
 
 enum Command {
   start,
@@ -122,13 +127,13 @@ class WLEDAudioSenderApp extends StatefulWidget {
 class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Stream? stream;
-  RawDatagramSocket? socket;
+  UdpSender? udpSender;
   late StreamSubscription listener;
   List<int>? currentSamples = [];
   List<int> visibleSamples = [];
   int? localMax;
   int? localMin;
-  InternetAddress multicastAddress = InternetAddress('239.0.0.1');
+  String multicastAddress = '239.0.0.1';
   int multicastPort = 11988; // WLED Audio Sync standard port
 
   Random rng = Random();
@@ -193,10 +198,8 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     // Default option. Set to false to disable request permission dialogue
     MicStream.shouldRequestPermission(true);
 
-    RawDatagramSocket.bind(InternetAddress.anyIPv4, 0)
-        .then((RawDatagramSocket s) {
-      socket = s;
-    });
+    // Initialize UDP sender for the current platform
+    udpSender = createUdpSender();
 
     stream = await MicStream.microphone(
         audioSource: AudioSource.DEFAULT,
@@ -355,7 +358,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       fftMajorPeak: majorPeakFreq,
     );
     
-    socket?.send(packet.asBytes(), multicastAddress, multicastPort);
+    udpSender?.send(packet.asBytes(), multicastAddress, multicastPort);
   }
 
   void _calculateWaveSamples(samples) {
@@ -516,6 +519,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   void dispose() {
     listener.cancel();
     controller.dispose();
+    udpSender?.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
