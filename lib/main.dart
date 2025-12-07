@@ -49,7 +49,7 @@ const audioFormat = AudioFormat.ENCODING_PCM_16BIT;
 /// This class encapsulates audio data in the format expected by WLED devices
 /// for real-time audio reactive effects.
 class AudioSyncPacket {
-  String header = "00002";      // 06 Bytes - header identifier
+  String header = "000002";     // 06 Bytes - header identifier (fixed to "000002")
   double sampleRaw;             // 04 Bytes - raw sample value
   double sampleSmth;            // 04 Bytes - smoothed sample value
   int samplePeak;               // 01 Byte  - peak detection (0 or 1)
@@ -138,6 +138,10 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   double sampleSmoothed = 0.0;
   int peakDetected = 0;
   double smoothingFactor = 0.5;
+  
+  // Pre-calculated FFT bin boundaries for performance
+  List<List<int>>? fftBinBoundaries;
+  static const int fftBinCount = 16;
 
   // Refreshes the Widget for every possible tick to force a rebuild of the sound wave
   late AnimationController controller;
@@ -286,18 +290,26 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     final freq = fft.realFft(audio);
     final magnitudes = freq.discardConjugates().magnitudes();
     
-    // Extract 16 frequency bins by grouping FFT results
-    // WLED typically uses logarithmic spacing for better musical representation
-    List<int> fftBins = [];
-    int binCount = 16;
     int usableBins = magnitudes.length ~/ 2; // Only use first half (positive frequencies)
     
-    for (int i = 0; i < binCount; i++) {
-      // Use logarithmic spacing for better frequency distribution
-      int startBin = (pow(2, i * usableBins / binCount / 8) - 1).toInt();
-      int endBin = (pow(2, (i + 1) * usableBins / binCount / 8) - 1).toInt();
-      startBin = startBin.clamp(0, usableBins - 1);
-      endBin = endBin.clamp(startBin, usableBins - 1);
+    // Calculate FFT bin boundaries once if not already done
+    if (fftBinBoundaries == null || fftBinBoundaries!.isEmpty) {
+      fftBinBoundaries = [];
+      for (int i = 0; i < fftBinCount; i++) {
+        // Use logarithmic spacing for better frequency distribution
+        int startBin = (pow(2, i * usableBins / fftBinCount / 8) - 1).toInt();
+        int endBin = (pow(2, (i + 1) * usableBins / fftBinCount / 8) - 1).toInt();
+        startBin = startBin.clamp(0, usableBins - 1);
+        endBin = endBin.clamp(startBin, usableBins - 1);
+        fftBinBoundaries!.add([startBin, endBin]);
+      }
+    }
+    
+    // Extract 16 frequency bins using pre-calculated boundaries
+    List<int> fftBins = [];
+    for (var bounds in fftBinBoundaries!) {
+      int startBin = bounds[0];
+      int endBin = bounds[1];
       
       // Average magnitude in this bin range
       double sum = 0;
@@ -314,7 +326,10 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     }
     
     // Calculate overall FFT magnitude (average of all bins)
-    double totalMagnitude = magnitudes.reduce((a, b) => a + b) / magnitudes.length;
+    double totalMagnitude = 0;
+    if (magnitudes.isNotEmpty) {
+      totalMagnitude = magnitudes.reduce((a, b) => a + b) / magnitudes.length;
+    }
     
     // Find dominant frequency (major peak)
     int maxIndex = 0;
@@ -398,6 +413,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       isRecording = false;
       currentSamples = null;
       startTime = null;
+      fftBinBoundaries = null; // Reset for next session
     });
     return true;
   }
