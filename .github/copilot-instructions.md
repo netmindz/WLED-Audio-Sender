@@ -15,10 +15,10 @@
 - **Flutter SDK**: Version 3.16.0+ (stable channel) - Required for all builds
 - **Dart**: Version >=2.19.1 <3.0.0
 - **Key Dependencies**:
-  - `mic_stream` (0.6.4): Audio capture from microphone
+  - `mic_stream` (0.6.4): Audio capture from microphone (includes permission handling)
   - `fftea` (1.2.0+1): FFT (Fast Fourier Transform) implementation
   - `record` (4.4.4): Audio recording support
-  - `permission_handler`: Platform permissions for microphone access
+  - `cupertino_icons` (1.0.2): iOS-style icons
 - **Android**: Gradle 8.1.4, Kotlin 1.9.0, compileSdk 35, minSdk 21, targetSdk 35
 - **iOS**: Minimum deployment target iOS 11.0
 - **macOS**: Minimum deployment target macOS 10.14
