@@ -82,7 +82,7 @@ jobs:
       - name: Update version with epoch build number
         run: |
           # Get current version from pubspec.yaml (e.g., "1.0.0+2")
-          CURRENT_VERSION=$(grep "^version:" pubspec.yaml | cut -d ' ' -f 2)
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
           # Extract base version (e.g., "1.0.0")
           BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
           # Get epoch time as build number
@@ -135,7 +135,7 @@ jobs:
       - name: Update version with epoch build number
         run: |
           # Get current version from pubspec.yaml (e.g., "1.0.0+2")
-          CURRENT_VERSION=$(grep "^version:" pubspec.yaml | cut -d ' ' -f 2)
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
           # Extract base version (e.g., "1.0.0")
           BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
           # Get epoch time as build number
@@ -185,7 +185,7 @@ jobs:
       - name: Update version with epoch build number
         run: |
           # Get current version from pubspec.yaml (e.g., "1.0.0+2")
-          CURRENT_VERSION=$(grep "^version:" pubspec.yaml | cut -d ' ' -f 2)
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
           # Extract base version (e.g., "1.0.0")
           BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
           # Get epoch time as build number
