@@ -66,6 +66,47 @@ Currently tested on:
 - Android
 - iOS
 
+## Building for Release
+
+### Android Release
+
+To build a signed Android release, you need to configure signing credentials:
+
+1. **Generate a keystore** (if you don't have one):
+   ```bash
+   keytool -genkey -v -keystore release-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+   ```
+
+2. **Create `android/key.properties`** with your keystore details:
+   ```properties
+   storeFile=release-keystore.jks
+   storePassword="<your_store_password>"
+   keyAlias="<your_key_alias>"
+   keyPassword="<your_key_password>"
+   ```
+
+3. **Build the release**:
+   ```bash
+   flutter build apk --release
+   # or
+   flutter build appbundle --release
+   ```
+
+### GitHub Actions Secrets
+
+For automated builds via GitHub Actions, configure these repository secrets:
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-encoded keystore file
+  ```bash
+  base64 -i release-keystore.jks | pbcopy  # macOS
+  base64 -w 0 release-keystore.jks         # Linux
+  ```
+- `ANDROID_KEY_ALIAS`: Your key alias (e.g., "upload")
+- `ANDROID_KEY_PASSWORD`: Password for the key
+- `ANDROID_STORE_PASSWORD`: Password for the keystore
+
+**Note**: Never commit `key.properties` or keystore files to version control.
+
 ## License
 
 This project follows the same license as the WLED project.

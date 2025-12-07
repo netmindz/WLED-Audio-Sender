@@ -36,6 +36,28 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Setup signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          # Create the keystore file from base64
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release-keystore.jks
+            
+            # Create key.properties file
+            cat > android/key.properties << EOF
+          storeFile=release-keystore.jks
+          storePassword="$STORE_PASSWORD"
+          keyAlias="$KEY_ALIAS"
+          keyPassword="$KEY_PASSWORD"
+          EOF
+          else
+            echo "Warning: Signing secrets not configured. Build will not be signed for release."
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
