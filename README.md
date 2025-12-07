@@ -107,6 +107,16 @@ For automated builds via GitHub Actions, configure these repository secrets:
 
 **Note**: Never commit `key.properties` or keystore files to version control.
 
+### Automated Versioning
+
+The GitHub Actions workflow automatically updates the build number in `pubspec.yaml` using epoch time (seconds since January 1, 1970). This ensures each build has a unique version code, which is required for app stores like Google Play.
+
+- Base version (e.g., `1.0.0`) is preserved from `pubspec.yaml`
+- Build number (e.g., `+1765126530`) is generated using `date +%s`
+- Final version format: `1.0.0+1765126530`
+
+This happens automatically during CI/CD builds and does not affect local development.
+
 ## Privacy Policy
 
 WLED Audio Sender requires microphone access to capture and process audio for synchronization with WLED devices. We take your privacy seriously:
