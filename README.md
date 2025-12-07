@@ -65,6 +65,8 @@ The app sends 52-byte packets with the following structure:
 Currently tested on:
 - Android
 - iOS
+- macOS
+- Linux
 
 ## License
 
