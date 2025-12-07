@@ -31,4 +31,5 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+    <!-- RECORD_AUDIO permission is automatically added by mic_stream plugin -->
 </manifest>
