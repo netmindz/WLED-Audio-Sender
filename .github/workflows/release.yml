@@ -79,6 +79,20 @@ jobs:
           storeFile=release.keystore
           EOF
 
+      - name: Update version with epoch build number
+        run: |
+          # Get current version from pubspec.yaml (e.g., "1.0.0+2")
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
+          # Extract base version (e.g., "1.0.0")
+          BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
+          # Get epoch time as build number
+          BUILD_NUMBER=$(date +%s)
+          # Update pubspec.yaml with new version
+          sed -i "s/^version:.*/version: ${BASE_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          echo "Updated version to ${BASE_VERSION}+${BUILD_NUMBER}"
+          # Verify the change
+          grep "^version:" pubspec.yaml
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -118,6 +132,20 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Update version with epoch build number
+        run: |
+          # Get current version from pubspec.yaml (e.g., "1.0.0+2")
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
+          # Extract base version (e.g., "1.0.0")
+          BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
+          # Get epoch time as build number
+          BUILD_NUMBER=$(date +%s)
+          # Update pubspec.yaml with new version
+          sed -i '' "s/^version:.*/version: ${BASE_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          echo "Updated version to ${BASE_VERSION}+${BUILD_NUMBER}"
+          # Verify the change
+          grep "^version:" pubspec.yaml
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -153,6 +181,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
+
+      - name: Update version with epoch build number
+        run: |
+          # Get current version from pubspec.yaml (e.g., "1.0.0+2")
+          CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
+          # Extract base version (e.g., "1.0.0")
+          BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
+          # Get epoch time as build number
+          BUILD_NUMBER=$(date +%s)
+          # Update pubspec.yaml with new version
+          sed -i '' "s/^version:.*/version: ${BASE_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
+          echo "Updated version to ${BASE_VERSION}+${BUILD_NUMBER}"
+          # Verify the change
+          grep "^version:" pubspec.yaml
 
       - name: Install dependencies
         run: flutter pub get
