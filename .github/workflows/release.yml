@@ -54,6 +54,7 @@ jobs:
           keyAlias="$KEY_ALIAS"
           keyPassword="$KEY_PASSWORD"
           EOF
+            cat android/key.properties
           else
             echo "Warning: Signing secrets not configured. Build will not be signed for release."
           fi
