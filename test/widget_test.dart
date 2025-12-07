@@ -13,7 +13,7 @@ import 'package:wled_audio_sender/main.dart';
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(WLEDAudioSenderApp());
+    await tester.pumpWidget(const WLEDAudioSenderApp());
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
