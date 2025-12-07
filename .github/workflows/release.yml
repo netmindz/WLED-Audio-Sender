@@ -11,6 +11,9 @@ on:
         required: false
         default: '1.0.0'
 
+env:
+  FLUTTER_VERSION: '3.16.0'
+
 jobs:
   build-android:
     name: Build Android Release
@@ -28,7 +31,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
@@ -65,7 +68,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
@@ -99,7 +102,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
@@ -112,7 +115,7 @@ jobs:
       - name: Create ZIP
         run: |
           cd build/macos/Build/Products/Release
-          zip -r wled_audio_sender-macos.zip wled_audio_sender.app
+          zip -r wled_audio_sender-macos.zip Runner.app
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
