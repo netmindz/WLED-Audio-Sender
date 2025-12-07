@@ -1,4 +1,4 @@
-package com.example.wled_audio_sender;
+package net.netmindz.wled.sender;
 
 import io.flutter.embedding.android.FlutterActivity;
 
