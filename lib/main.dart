@@ -34,7 +34,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Stream? stream;
   RawDatagramSocket? socket;
-  late StreamSubscription listener;
+  StreamSubscription? listener;
   
   // Settings (persisted)
   String multicastAddressStr = '239.0.0.1';
@@ -62,12 +62,12 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
   static const int fftBinCount = 16;
 
-  late AnimationController controller;
+  AnimationController? controller;
 
   final Color _iconColor = Colors.white;
   bool isRecording = false;
   bool memRecordingState = false;
-  late bool isActive;
+  bool isActive = false;
   DateTime? startTime;
 
   int page = 0;
@@ -241,14 +241,14 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     //  13:  86-103 ->  172-206  3704-4479 Hz high mid
     //  14: 104-164 ->  208-328  4479-7106 Hz high (damped 0.88)
     //  15: 165-215 ->  330-430  7106-9259 Hz high (damped 0.70)
-    static const List<List<int>> wledBinMap = [
+    const List<List<int>> wledBinMap = [
       [2, 2], [4, 4], [6, 8], [10, 12],
       [14, 18], [20, 24], [26, 36], [38, 50],
       [52, 64], [66, 86], [88, 110], [112, 138],
       [140, 170], [172, 206], [208, 328], [330, 430],
     ];
     // Damping factors for upper bins (matching WLED)
-    static const List<double> binDamping = [
+    const List<double> binDamping = [
       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.88, 0.70,
     ];
@@ -316,7 +316,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
   bool _stopListening() {
     if (!isRecording) return false;
-    listener.cancel();
+    listener?.cancel();
     socket?.close();
     socket = null;
 
@@ -342,14 +342,14 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
     controller =
         AnimationController(duration: const Duration(seconds: 1), vsync: this)
-          ..addListener(() {
+           ..addListener(() {
             if (isRecording) setState(() {});
           })
           ..addStatusListener((status) {
             if (status == AnimationStatus.completed) {
-              controller.reverse();
+              controller?.reverse();
             } else if (status == AnimationStatus.dismissed) {
-              controller.forward();
+              controller?.forward();
             }
           })
           ..forward();
@@ -566,8 +566,8 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
   @override
   void dispose() {
-    listener.cancel();
-    controller.dispose();
+    listener?.cancel();
+    controller?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
