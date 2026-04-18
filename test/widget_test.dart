@@ -1,30 +1,61 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wled_audio_sender/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('App renders with title and mic button', (WidgetTester tester) async {
     await tester.pumpWidget(const WLEDAudioSenderApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify app title is shown
+    expect(find.text('WLED Audio Sender'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // Verify mic button is present (voice icon when not recording)
+    expect(find.byIcon(Icons.keyboard_voice), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify bottom navigation tabs exist
+    expect(find.text('Sound Wave'), findsOneWidget);
+    expect(find.text('Intensity Wave'), findsOneWidget);
+    expect(find.text('Statistics'), findsOneWidget);
+  });
+
+  test('AudioSyncPacket produces exactly 44 bytes', () {
+    final packet = AudioSyncPacket(
+      pressure: [10, 128],
+      sampleRaw: 42.5,
+      sampleSmth: 40.0,
+      samplePeak: 1,
+      frameCounter: 7,
+      fftResult: List<int>.filled(16, 100),
+      zeroCrossingCount: 50,
+      fftMagnitude: 1234.5,
+      fftMajorPeak: 440.0,
+    );
+
+    final bytes = packet.asBytes();
+    expect(bytes.length, 44);
+
+    // Verify header is "00002\0"
+    expect(bytes.sublist(0, 6), [0x30, 0x30, 0x30, 0x30, 0x32, 0x00]);
+
+    // Verify pressure bytes
+    expect(bytes[6], 10);
+    expect(bytes[7], 128);
+
+    // Verify samplePeak at offset 16
+    expect(bytes[16], 1);
+
+    // Verify frameCounter at offset 17
+    expect(bytes[17], 7);
+
+    // Verify fftResult (16 bytes at offset 18-33)
+    for (int i = 18; i < 34; i++) {
+      expect(bytes[i], 100);
+    }
+
+    // Verify zeroCrossingCount at offset 34-35 (uint16 LE = 50)
+    final zcc = ByteData.sublistView(Uint8List.fromList(bytes.sublist(34, 36)));
+    expect(zcc.getUint16(0, Endian.little), 50);
   });
 }

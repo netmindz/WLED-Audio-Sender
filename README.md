@@ -14,7 +14,7 @@ A Flutter/Dart application that captures audio from the device microphone, proce
   - 16 frequency bins using logarithmic spacing for musical representation
   - Dominant frequency detection
 - **WLED Integration**:
-  - Sends Audio Sync v2 packets (52 bytes) via UDP multicast
+  - Sends Audio Sync v2 packets (44 bytes) via UDP multicast
   - Standard WLED port 11988
   - Multicast address: 239.0.0.1
 - **Visualization**:
@@ -24,17 +24,19 @@ A Flutter/Dart application that captures audio from the device microphone, proce
 
 ## WLED Audio Sync v2 Packet Format
 
-The app sends 52-byte packets with the following structure:
+The app sends 44-byte packets matching the `audioSyncPacket` struct from WLED's `audio_reactive.h`:
 
 | Field | Size | Type | Description |
 |-------|------|------|-------------|
-| Header | 6 bytes | String | "00002" - Protocol version identifier |
-| Sample Raw | 4 bytes | float32 | Current audio level (0-255) |
-| Sample Smooth | 4 bytes | float32 | Smoothed audio level |
-| Sample Peak | 1 byte | uint8 | Peak detection flag (0 or 1) |
-| Reserved | 1 byte | uint8 | Reserved for future use |
-| FFT Result | 16 bytes | 16x uint8 | Frequency bins (0-255 each) |
-| FFT Magnitude | 4 bytes | float32 | Overall FFT magnitude |
+| Header | 6 bytes | char[6] | "00002\0" - Protocol version identifier |
+| Pressure | 2 bytes | uint8[2] | Sound pressure (fixed-point: integer.fraction) |
+| Sample Raw | 4 bytes | float32 | Raw/AGC-adjusted audio sample |
+| Sample Smooth | 4 bytes | float32 | Smoothed audio sample |
+| Sample Peak | 1 byte | uint8 | Peak detection flag (0=no peak, >=1=peak) |
+| Frame Counter | 1 byte | uint8 | Rolling sequence counter |
+| FFT Result | 16 bytes | uint8[16] | 16 GEQ frequency bins (0-255 each) |
+| Zero Crossing Count | 2 bytes | uint16 | Zero crossings in sample window |
+| FFT Magnitude | 4 bytes | float32 | Largest single FFT result |
 | FFT Major Peak | 4 bytes | float32 | Dominant frequency in Hz |
 
 ## Usage
