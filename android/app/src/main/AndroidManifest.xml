@@ -33,6 +33,8 @@
     </application>
     <!-- RECORD_AUDIO permission is automatically added by mic_stream plugin -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- MODIFY_AUDIO_SETTINGS is needed for internal audio capture (REMOTE_SUBMIX) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- INTERNET permission is required to create datagram sockets and send
          WLED Audio Sync UDP multicast packets. Without this, socket bind
          fails with "Operation not permitted" on release builds. -->

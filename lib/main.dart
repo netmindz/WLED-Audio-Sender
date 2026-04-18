@@ -54,6 +54,7 @@ class HomePageState extends State<HomePage>
   int multicastPort = 11988;
   bool agcEnabled = true;
   int agcPresetIndex = 0; // 0=normal, 1=vivid, 2=lazy
+  int audioSourceIndex = 0; // 0=Microphone, 1=Internal Audio
   InternetAddress get multicastAddress => InternetAddress(multicastAddressStr);
 
   // AGC
@@ -102,6 +103,7 @@ class HomePageState extends State<HomePage>
       multicastPort = prefs.getInt('multicastPort') ?? 11988;
       agcEnabled = prefs.getBool('agcEnabled') ?? true;
       agcPresetIndex = prefs.getInt('agcPreset') ?? 0;
+      audioSourceIndex = prefs.getInt('audioSource') ?? 0;
       _agc.enabled = agcEnabled;
       _agc.preset = AgcPreset.values[agcPresetIndex.clamp(0, 2)];
     });
@@ -113,6 +115,7 @@ class HomePageState extends State<HomePage>
     await prefs.setInt('multicastPort', multicastPort);
     await prefs.setBool('agcEnabled', agcEnabled);
     await prefs.setInt('agcPreset', agcPresetIndex);
+    await prefs.setInt('audioSource', audioSourceIndex);
   }
 
   void _controlPage(int index) => setState(() => page = index);
@@ -176,9 +179,12 @@ class HomePageState extends State<HomePage>
     MicStream.shouldRequestPermission(false);
 
     try {
+      final source = audioSourceIndex == 1
+          ? AudioSource.REMOTE_SUBMIX
+          : AudioSource.DEFAULT;
       stream = MicStream.microphone(
-          audioSource: AudioSource.DEFAULT,
-          sampleRate: 44100,
+          audioSource: source,
+          sampleRate: 22050,
           channelConfig: ChannelConfig.CHANNEL_IN_MONO,
           audioFormat: audioFormat);
     } catch (e) {
@@ -268,31 +274,30 @@ class HomePageState extends State<HomePage>
     int usableBins = magnitudes.length;
 
     // WLED GEQ bin mapping - ported from audio_reactive.h (512 samples, 22050Hz)
-    // At 44100Hz with 512-point FFT, bin indices are doubled vs WLED's 22050Hz.
-    // WLED bin N at 22050Hz = our bin N*2 at 44100Hz (same frequency).
-    // Using WLED's 512-sample mapping (lines 876-921 of audio_reactive.h):
-    //   Channel:  WLED bins (22050Hz)  -> our bins (44100Hz)  -> frequency range
-    //   0:  1-1    ->  2-2      43-86 Hz    sub-bass
-    //   1:  2-2    ->  4-4      86-129 Hz   bass
-    //   2:  3-4    ->  6-8      129-216 Hz  bass
-    //   3:  5-6    ->  10-12    216-301 Hz  bass+mid
-    //   4:  7-9    ->  14-18    301-430 Hz  midrange
-    //   5:  10-12  ->  20-24    430-560 Hz  midrange
-    //   6:  13-18  ->  26-36    560-818 Hz  midrange
-    //   7:  19-25  ->  38-50    818-1120 Hz midrange
-    //   8:  26-32  ->  52-64    1120-1421 Hz midrange
-    //   9:  33-43  ->  66-86    1421-1895 Hz midrange
-    //  10:  44-55  ->  88-110   1895-2412 Hz mid+high
-    //  11:  56-69  ->  112-138  2412-3015 Hz high mid
-    //  12:  70-85  ->  140-170  3015-3704 Hz high mid
-    //  13:  86-103 ->  172-206  3704-4479 Hz high mid
-    //  14: 104-164 ->  208-328  4479-7106 Hz high (damped 0.88)
-    //  15: 165-215 ->  330-430  7106-9259 Hz high (damped 0.70)
+    // We sample at 22050Hz with 512-point FFT so bin indices match WLED exactly.
+    // Bin resolution: 22050/512 = 43.07 Hz per bin
+    //   Channel:  bins       frequency range
+    //   0:  1-1       43-86 Hz    sub-bass
+    //   1:  2-2       86-129 Hz   bass
+    //   2:  3-4       129-216 Hz  bass
+    //   3:  5-6       216-301 Hz  bass+mid
+    //   4:  7-9       301-430 Hz  midrange
+    //   5:  10-12     430-560 Hz  midrange
+    //   6:  13-18     560-818 Hz  midrange
+    //   7:  19-25     818-1120 Hz midrange
+    //   8:  26-32     1120-1421 Hz midrange
+    //   9:  33-43     1421-1895 Hz midrange
+    //  10:  44-55     1895-2412 Hz mid+high
+    //  11:  56-69     2412-3015 Hz high mid
+    //  12:  70-85     3015-3704 Hz high mid
+    //  13:  86-103    3704-4479 Hz high mid
+    //  14: 104-164    4479-7106 Hz high (damped 0.88)
+    //  15: 165-215    7106-9259 Hz high (damped 0.70)
     const List<List<int>> wledBinMap = [
-      [2, 2], [4, 4], [6, 8], [10, 12],
-      [14, 18], [20, 24], [26, 36], [38, 50],
-      [52, 64], [66, 86], [88, 110], [112, 138],
-      [140, 170], [172, 206], [208, 328], [330, 430],
+      [1, 1], [2, 2], [3, 4], [5, 6],
+      [7, 9], [10, 12], [13, 18], [19, 25],
+      [26, 32], [33, 43], [44, 55], [56, 69],
+      [70, 85], [86, 103], [104, 164], [165, 215],
     ];
     // Damping factors for upper bins (matching WLED)
     const List<double> binDamping = [
@@ -412,6 +417,7 @@ class HomePageState extends State<HomePage>
     final portController = TextEditingController(text: multicastPort.toString());
     bool dialogAgcEnabled = agcEnabled;
     int dialogAgcPreset = agcPresetIndex;
+    int dialogAudioSource = audioSourceIndex;
 
     showDialog(
       context: context,
@@ -439,6 +445,17 @@ class HomePageState extends State<HomePage>
                     hintText: '11988',
                   ),
                   keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 24),
+                const Text('Audio Source', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 4),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 0, label: Text('Mic')),
+                    ButtonSegment(value: 1, label: Text('Internal')),
+                  ],
+                  selected: {dialogAudioSource},
+                  onSelectionChanged: (val) => setDialogState(() => dialogAudioSource = val.first),
                 ),
                 const SizedBox(height: 24),
                 SwitchListTile(
@@ -481,6 +498,7 @@ class HomePageState extends State<HomePage>
                       multicastPort = newPort;
                       agcEnabled = dialogAgcEnabled;
                       agcPresetIndex = dialogAgcPreset;
+                      audioSourceIndex = dialogAudioSource;
                       _agc.enabled = agcEnabled;
                       _agc.preset = AgcPreset.values[agcPresetIndex];
                     });
