@@ -118,16 +118,21 @@ class HomePageState extends State<HomePage>
   void _controlPage(int index) => setState(() => page = index);
 
   void _controlMicStream({Command command = Command.change}) async {
-    switch (command) {
-      case Command.change:
-        await _changeListening();
-        break;
-      case Command.start:
-        await _startListening();
-        break;
-      case Command.stop:
-        _stopListening();
-        break;
+    try {
+      switch (command) {
+        case Command.change:
+          await _changeListening();
+          break;
+        case Command.start:
+          await _startListening();
+          break;
+        case Command.stop:
+          _stopListening();
+          break;
+      }
+    } catch (e, st) {
+      _showError('Error: $e');
+      debugPrint('_controlMicStream error: $e\n$st');
     }
   }
 
@@ -167,8 +172,11 @@ class HomePageState extends State<HomePage>
       return false;
     }
 
+    // Disable mic_stream's own permission handling since we do it above
+    MicStream.shouldRequestPermission(false);
+
     try {
-      stream = await MicStream.microphone(
+      stream = MicStream.microphone(
           audioSource: AudioSource.DEFAULT,
           sampleRate: 44100,
           channelConfig: ChannelConfig.CHANNEL_IN_MONO,
@@ -189,13 +197,19 @@ class HomePageState extends State<HomePage>
       return false;
     }
 
-    samplesPerSecond = (await MicStream.sampleRate)!.toInt();
-
     setState(() {
       isRecording = true;
       startTime = DateTime.now();
     });
     listener = stream!.listen(_calculateSamples);
+
+    // Get actual sample rate after stream is active (the mic_stream
+    // completer resolves once first data arrives).
+    try {
+      samplesPerSecond = (await MicStream.sampleRate.timeout(const Duration(seconds: 5))).toInt();
+    } catch (_) {
+      samplesPerSecond = 44100; // fallback
+    }
     return true;
   }
 
