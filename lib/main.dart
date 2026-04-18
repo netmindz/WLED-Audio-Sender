@@ -9,6 +9,7 @@ import 'dart:math';
 import 'package:fftea/fftea.dart';
 import 'package:flutter/material.dart';
 import 'package:mic_stream/mic_stream.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/audio_sync_packet.dart';
@@ -119,10 +120,10 @@ class HomePageState extends State<HomePage>
   void _controlMicStream({Command command = Command.change}) async {
     switch (command) {
       case Command.change:
-        _changeListening();
+        await _changeListening();
         break;
       case Command.start:
-        _startListening();
+        await _startListening();
         break;
       case Command.stop:
         _stopListening();
@@ -133,18 +134,36 @@ class HomePageState extends State<HomePage>
   Future<bool> _changeListening() async =>
       !isRecording ? await _startListening() : _stopListening();
 
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   late int samplesPerSecond;
 
   Future<bool> _startListening() async {
     if (isRecording) return false;
 
-    MicStream.shouldRequestPermission(true);
+    // Explicitly request microphone permission
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (status.isPermanentlyDenied) {
+        _showError('Microphone permission permanently denied. Please enable in Settings.');
+        openAppSettings();
+      } else {
+        _showError('Microphone permission denied.');
+      }
+      return false;
+    }
 
     try {
       RawDatagramSocket s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket = s;
     } catch (e) {
       debugPrint('Failed to bind UDP socket: $e');
+      _showError('Failed to bind UDP socket: $e');
       return false;
     }
 
@@ -156,6 +175,7 @@ class HomePageState extends State<HomePage>
           audioFormat: audioFormat);
     } catch (e) {
       debugPrint('Failed to access microphone: $e');
+      _showError('Failed to access microphone: $e');
       socket?.close();
       socket = null;
       return false;
@@ -163,6 +183,7 @@ class HomePageState extends State<HomePage>
 
     if (stream == null) {
       debugPrint('Microphone stream is null - permission may have been denied');
+      _showError('Could not open microphone stream.');
       socket?.close();
       socket = null;
       return false;

@@ -38,6 +38,7 @@ dependencies:
   mic_stream: ^0.7.2
   fftea: ^1.2.0+1
   shared_preferences: ^2.2.0
+  permission_handler: ^11.0.0
 
 dev_dependencies:
   flutter_test:
