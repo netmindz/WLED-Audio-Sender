@@ -1,11 +1,14 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wled_audio_sender/main.dart';
+import 'package:wled_audio_sender/models/audio_sync_packet.dart';
 
 void main() {
   testWidgets('App renders with title and mic button', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const WLEDAudioSenderApp());
 
     // Verify app title is shown
@@ -17,6 +20,9 @@ void main() {
     // Verify bottom navigation tabs exist
     expect(find.text('Analyser'), findsOneWidget);
     expect(find.text('Details'), findsOneWidget);
+
+    // Verify settings button is present
+    expect(find.byIcon(Icons.settings), findsOneWidget);
   });
 
   test('AudioSyncPacket produces exactly 44 bytes', () {

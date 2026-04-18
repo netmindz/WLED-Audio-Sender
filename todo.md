@@ -20,10 +20,10 @@
 - [x] Add unit test for AudioSyncPacket (44-byte output, correct header/fields)
 
 ## Features (Future)
-- [ ] Settings UI for multicast address and port
-- [ ] AGC (Automatic Gain Control) to match WLED's processing
-- [ ] Verify FFT bin boundary calculation matches WLED's frequency mapping
-- [ ] Split single-file architecture into separate files (models, services, UI)
+- [x] Settings UI for multicast address and port
+- [x] AGC (Automatic Gain Control) to match WLED's processing
+- [x] Verify FFT bin boundary calculation matches WLED's frequency mapping
+- [x] Split single-file architecture into separate files (models, services, UI)
 
 ## CI/CD & Distribution
 - [x] Review GitHub Actions workflow
@@ -36,4 +36,5 @@
     2. Grant the service account "Release manager" permissions in Play Console
     3. Export the JSON key and add as a GitHub Actions secret
   - Package name: `net.netmindz.wled.sender`
+- [x] Add CI workflow for tests + Android build (no publishing)
 - [ ] iOS build is still unsigned (no codesign) - needs Apple Developer setup to distribute
