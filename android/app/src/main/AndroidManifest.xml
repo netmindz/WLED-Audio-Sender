@@ -32,4 +32,5 @@
             android:value="2" />
     </application>
     <!-- RECORD_AUDIO permission is automatically added by mic_stream plugin -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

@@ -23,14 +23,26 @@ const audioFormat = AudioFormat.ENCODING_PCM_16BIT;
 
 void main() => runApp(const WLEDAudioSenderApp());
 
-class WLEDAudioSenderApp extends StatefulWidget {
+class WLEDAudioSenderApp extends StatelessWidget {
   const WLEDAudioSenderApp({super.key});
 
   @override
-  _WLEDAudioSenderAppState createState() => _WLEDAudioSenderAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      theme: ThemeData.dark(),
+      home: const HomePage(),
+    );
+  }
 }
 
-class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  HomePageState createState() => HomePageState();
+}
+
+class HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Stream? stream;
   RawDatagramSocket? socket;
@@ -511,9 +523,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: ThemeData.dark(),
-      home: Scaffold(
+    return Scaffold(
           appBar: AppBar(
             title: const Text('WLED Audio Sender'),
             actions: [
@@ -547,8 +557,7 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
             currentIndex: page,
             onTap: _controlPage,
           ),
-          body: _buildBody()),
-    );
+          body: _buildBody());
   }
 
   @override

@@ -9,7 +9,7 @@ import 'package:wled_audio_sender/models/audio_sync_packet.dart';
 void main() {
   testWidgets('App renders with title and mic button', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const WLEDAudioSenderApp());
+    await tester.pumpWidget(const MaterialApp(home: HomePage()));
 
     // Verify app title is shown
     expect(find.text('WLED Audio Sender'), findsOneWidget);
