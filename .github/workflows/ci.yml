@@ -10,59 +10,39 @@ env:
 
 jobs:
   test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'stable'
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Run tests
-        run: flutter test
+    uses: ./.github/workflows/test.yml
+    with:
+      flutter-version: '3.27.4'
 
   build-android:
-    name: Build Android
     needs: [test]
+    uses: ./.github/workflows/build-android.yml
+    with:
+      flutter-version: '3.27.4'
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+  publish-play-store:
+    name: Publish to Google Play Store
+    needs: [build-android]
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Download App Bundle
+        uses: actions/download-artifact@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          name: android-appbundle
+          path: artifacts
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Publish to Play Store
+        uses: r0adkll/upload-google-play@v1
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'stable'
-          cache: true
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.android/build-cache
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle', '**/gradle-wrapper.properties', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Build APK (debug)
-        run: flutter build apk --debug
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: net.netmindz.wled.sender
+          releaseFiles: artifacts/app-release.aab
+          track: internal
+          status: draft
+          changesNotSentForReview: false
