@@ -33,4 +33,12 @@
     </application>
     <!-- RECORD_AUDIO permission is automatically added by mic_stream plugin -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- INTERNET permission is required to create datagram sockets and send
+         WLED Audio Sync UDP multicast packets. Without this, socket bind
+         fails with "Operation not permitted" on release builds. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- CHANGE_WIFI_MULTICAST_STATE allows the app to receive multicast
+         packets when needed (and is recommended on some devices for
+         multicast send to work reliably while the screen is off). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 </manifest>
