@@ -29,7 +29,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:core';
 import 'dart:typed_data';
 
 import 'package:fftea/fftea.dart';
@@ -148,27 +147,28 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   Stream? stream;
   RawDatagramSocket? socket;
   late StreamSubscription listener;
-  List<int>? currentSamples = [];
-  List<int> visibleSamples = [];
-  int? localMax;
-  int? localMin;
   InternetAddress multicastAddress = InternetAddress('239.0.0.1');
   int multicastPort = 11988; // WLED Audio Sync standard port
 
-  Random rng = Random();
-  
   // Audio processing state
-  double sampleAverage = 0.0;
+  double sampleRaw = 0.0;
   double sampleSmoothed = 0.0;
   int peakDetected = 0;
   double smoothingFactor = 0.5;
   int frameCounter = 0;
+  List<int> fftBins = List<int>.filled(16, 0);
+  double fftMagnitude = 0.0;
+  double fftMajorPeak = 0.0;
+  int zeroCrossingCount = 0;
+  
+  // Peak hold for VU meter (decays over time)
+  double peakHold = 0.0;
   
   // Pre-calculated FFT bin boundaries for performance
   List<List<int>>? fftBinBoundaries;
   static const int fftBinCount = 16;
 
-  // Refreshes the Widget for every possible tick to force a rebuild of the sound wave
+  // Refreshes the Widget for every possible tick to force a rebuild
   late AnimationController controller;
 
   final Color _iconColor = Colors.white;
@@ -178,7 +178,6 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   DateTime? startTime;
 
   int page = 0;
-  List state = ["SoundWavePage", "IntensityWavePage", "InformationPage"];
 
   @override
   void initState() {
@@ -209,7 +208,6 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   Future<bool> _changeListening() async =>
       !isRecording ? await _startListening() : _stopListening();
 
-  late int bytesPerSample;
   late int samplesPerSecond;
 
   Future<bool> _startListening() async {
@@ -247,16 +245,12 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     }
     
     // Get actual sample rate and bit depth
-    bytesPerSample = (await MicStream.bitDepth)! ~/ 8;
     samplesPerSecond = (await MicStream.sampleRate)!.toInt();
-    localMax = null;
-    localMin = null;
 
     setState(() {
       isRecording = true;
       startTime = DateTime.now();
     });
-    visibleSamples = [];
     listener = stream!.listen(_calculateSamples);
     return true;
   }
@@ -273,23 +267,14 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   /// 7. Finds dominant frequency (major peak)
   /// 8. Sends WLED Audio Sync v2 packet via UDP multicast
   void _calculateSamples(samples) {
-    if (page == 0) {
-      _calculateWaveSamples(samples);
-    } else if (page == 1) {
-      _calculateIntensitySamples(samples);
-    }
-    
     // Convert samples to audio values for FFT processing
     List<double> audio = [];
     List<int> tmp = samples;
     
     // Convert int16 samples to normalized doubles (-1.0 to 1.0)
     for (int i = 0; i < tmp.length - 1; i += 2) {
-      // Combine two bytes into int16
       int sample16 = tmp[i] | (tmp[i + 1] << 8);
-      // Convert to signed int16
       if (sample16 > 32767) sample16 -= 65536;
-      // Normalize to -1.0 to 1.0
       audio.add(sample16 / 32768.0);
     }
     
@@ -301,23 +286,28 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       sumSquares += sample * sample;
     }
     double rms = sqrt(sumSquares / audio.length);
-    double sampleRaw = rms * 255.0; // Scale to 0-255 range
+    sampleRaw = rms * 255.0; // Scale to 0-255 range
     
     // Apply exponential smoothing filter
     sampleSmoothed = sampleSmoothed * smoothingFactor + 
                      sampleRaw * (1.0 - smoothingFactor);
     
-    // Simple peak detection - detect if current sample is significantly above average
+    // Update peak hold (decay towards smoothed value)
+    if (sampleRaw > peakHold) {
+      peakHold = sampleRaw;
+    } else {
+      peakHold = peakHold * 0.95; // Slow decay
+    }
+    
+    // Simple peak detection
     double threshold = sampleSmoothed * 1.5;
     peakDetected = (sampleRaw > threshold) ? 1 : 0;
     
     // Perform FFT - use power of 2 chunk size
     const int fftSize = 512;
     if (audio.length < fftSize) {
-      // Pad with zeros if needed
       audio.addAll(List<double>.filled(fftSize - audio.length, 0.0));
     } else if (audio.length > fftSize) {
-      // Truncate if too long
       audio = audio.sublist(0, fftSize);
     }
     
@@ -332,13 +322,12 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
     final freq = fft.realFft(audio);
     final magnitudes = freq.discardConjugates().magnitudes();
     
-    int usableBins = magnitudes.length ~/ 2; // Only use first half (positive frequencies)
+    int usableBins = magnitudes.length ~/ 2;
     
-    // Calculate FFT bin boundaries once if not already done
+    // Calculate FFT bin boundaries once
     if (fftBinBoundaries == null || fftBinBoundaries!.isEmpty) {
       fftBinBoundaries = [];
       for (int i = 0; i < fftBinCount; i++) {
-        // Use logarithmic spacing for better frequency distribution
         int startBin = (pow(2, i * usableBins / fftBinCount / 8) - 1).toInt();
         int endBin = (pow(2, (i + 1) * usableBins / fftBinCount / 8) - 1).toInt();
         startBin = startBin.clamp(0, usableBins - 1);
@@ -347,13 +336,11 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       }
     }
     
-    // Extract 16 frequency bins using pre-calculated boundaries
-    List<int> fftBins = [];
+    // Extract 16 frequency bins
+    fftBins = [];
     for (var bounds in fftBinBoundaries!) {
       int startBin = bounds[0];
       int endBin = bounds[1];
-      
-      // Average magnitude in this bin range
       double sum = 0;
       int count = 0;
       for (int j = startBin; j <= endBin && j < magnitudes.length; j++) {
@@ -361,19 +348,17 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
         count++;
       }
       double avgMag = count > 0 ? sum / count : 0;
-      
-      // Scale to 0-255 range and clamp
-      int binValue = (avgMag * 1000).toInt().clamp(0, 255);
-      fftBins.add(binValue);
+      fftBins.add((avgMag * 1000).toInt().clamp(0, 255));
     }
     
-    // Calculate overall FFT magnitude (average of all bins)
+    // Calculate overall FFT magnitude
     double totalMagnitude = 0;
     if (magnitudes.isNotEmpty) {
       totalMagnitude = magnitudes.reduce((a, b) => a + b) / magnitudes.length;
     }
+    fftMagnitude = totalMagnitude * 100;
     
-    // Find dominant frequency (major peak)
+    // Find dominant frequency
     int maxIndex = 0;
     double maxValue = 0;
     for (int i = 1; i < usableBins; i++) {
@@ -382,20 +367,18 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
         maxIndex = i;
       }
     }
-    
-    // Convert bin index to frequency
-    double majorPeakFreq = maxIndex * samplesPerSecond / fftSize;
+    fftMajorPeak = maxIndex * samplesPerSecond / fftSize;
     
     // Calculate zero-crossing count
-    int zeroCrossings = 0;
+    zeroCrossingCount = 0;
     for (int i = 1; i < audio.length; i++) {
       if ((audio[i] >= 0 && audio[i - 1] < 0) || 
           (audio[i] < 0 && audio[i - 1] >= 0)) {
-        zeroCrossings++;
+        zeroCrossingCount++;
       }
     }
     
-    // Calculate sound pressure (fixed-point: integer.fraction)
+    // Calculate sound pressure (fixed-point)
     int pressureInt = sampleRaw.toInt().clamp(0, 255);
     int pressureFrac = ((sampleRaw - pressureInt) * 256).toInt().clamp(0, 255);
     
@@ -409,59 +392,12 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
       samplePeak: peakDetected,
       frameCounter: frameCounter,
       fftResult: fftBins,
-      zeroCrossingCount: zeroCrossings,
-      fftMagnitude: totalMagnitude * 100, // Scale appropriately
-      fftMajorPeak: majorPeakFreq,
+      zeroCrossingCount: zeroCrossingCount,
+      fftMagnitude: fftMagnitude,
+      fftMajorPeak: fftMajorPeak,
     );
     
     socket?.send(packet.asBytes(), multicastAddress, multicastPort);
-  }
-
-  void _calculateWaveSamples(samples) {
-    bool first = true;
-    visibleSamples = [];
-    int tmp = 0;
-    for (int sample in samples) {
-      if (sample > 128) sample -= 255;
-      if (first) {
-        tmp = sample * 128;
-      } else {
-        tmp += sample;
-        visibleSamples.add(tmp);
-
-        localMax ??= visibleSamples.last;
-        localMin ??= visibleSamples.last;
-        localMax = max(localMax!, visibleSamples.last);
-        localMin = min(localMin!, visibleSamples.last);
-
-        tmp = 0;
-      }
-      first = !first;
-    }
-    // print(visibleSamples);
-  }
-
-  void _calculateIntensitySamples(samples) {
-    currentSamples ??= [];
-    int currentSample = 0;
-    eachWithIndex(samples, (i, int sample) {
-      currentSample += sample;
-      if ((i % bytesPerSample) == bytesPerSample - 1) {
-        currentSamples!.add(currentSample);
-        currentSample = 0;
-      }
-    });
-
-    if (currentSamples!.length >= samplesPerSecond / 10) {
-      visibleSamples
-          .add(currentSamples!.map((i) => i).toList().reduce((a, b) => a + b));
-      localMax ??= visibleSamples.last;
-      localMin ??= visibleSamples.last;
-      localMax = max(localMax!, visibleSamples.last);
-      localMin = min(localMin!, visibleSamples.last);
-      currentSamples = [];
-      setState(() {});
-    }
   }
 
   bool _stopListening() {
@@ -472,9 +408,16 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
 
     setState(() {
       isRecording = false;
-      currentSamples = null;
       startTime = null;
-      fftBinBoundaries = null; // Reset for next session
+      fftBinBoundaries = null;
+      sampleRaw = 0.0;
+      sampleSmoothed = 0.0;
+      peakDetected = 0;
+      peakHold = 0.0;
+      fftBins = List<int>.filled(16, 0);
+      fftMagnitude = 0.0;
+      fftMajorPeak = 0.0;
+      zeroCrossingCount = 0;
     });
     return true;
   }
@@ -483,8 +426,6 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   Future<void> initPlatformState() async {
     if (!mounted) return;
     isActive = true;
-
-    const Statistics(false);
 
     controller =
         AnimationController(duration: const Duration(seconds: 1), vsync: this)
@@ -506,6 +447,59 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   Icon _getIcon() =>
       (isRecording) ? const Icon(Icons.stop) : const Icon(Icons.keyboard_voice);
 
+  Widget _buildBody() {
+    switch (page) {
+      case 0:
+        return Column(
+          children: [
+            // VU Meter
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: VUMeterPainter(
+                    sampleRaw: sampleRaw,
+                    sampleSmth: sampleSmoothed,
+                    peakHold: peakHold,
+                    peakDetected: peakDetected == 1,
+                  ),
+                ),
+              ),
+            ),
+            // Spectrum Analyser
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: SpectrumPainter(
+                    fftBins: fftBins,
+                    majorPeak: fftMajorPeak,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      case 1:
+      default:
+        return Statistics(
+          isRecording,
+          startTime: startTime,
+          sampleRaw: sampleRaw,
+          sampleSmth: sampleSmoothed,
+          peakDetected: peakDetected,
+          frameCounter: frameCounter,
+          fftMagnitude: fftMagnitude,
+          fftMajorPeak: fftMajorPeak,
+          zeroCrossingCount: zeroCrossingCount,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -524,37 +518,20 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
           bottomNavigationBar: BottomNavigationBar(
             items: const [
               BottomNavigationBarItem(
-                icon: Icon(Icons.broken_image),
-                label: "Sound Wave",
+                icon: Icon(Icons.equalizer),
+                label: "Analyser",
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.broken_image),
-                label: "Intensity Wave",
+                icon: Icon(Icons.info_outline),
+                label: "Details",
               ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.view_list),
-                label: "Statistics",
-              )
             ],
             backgroundColor: Colors.black26,
             elevation: 20,
             currentIndex: page,
             onTap: _controlPage,
           ),
-          body: (page == 0 || page == 1)
-              ? CustomPaint(
-                  painter: WavePainter(
-                    samples: visibleSamples,
-                    color: _getBgColor(),
-                    localMax: localMax,
-                    localMin: localMin,
-                    context: context,
-                  ),
-                )
-              : Statistics(
-                  isRecording,
-                  startTime: startTime,
-                )),
+          body: _buildBody()),
     );
   }
 
@@ -582,103 +559,268 @@ class _WLEDAudioSenderAppState extends State<WLEDAudioSenderApp>
   }
 }
 
-class WavePainter extends CustomPainter {
-  int? localMax;
-  int? localMin;
-  List<int>? samples;
-  late List<Offset> points;
-  Color? color;
-  BuildContext? context;
-  Size? size;
+/// VU Meter - shows sampleRaw as bar, sampleSmth as line, peakHold as marker
+class VUMeterPainter extends CustomPainter {
+  final double sampleRaw;
+  final double sampleSmth;
+  final double peakHold;
+  final bool peakDetected;
 
-  // Set max val possible in stream, depending on the config
-  // int absMax = 255*4; //(AUDIO_FORMAT == AudioFormat.ENCODING_PCM_8BIT) ? 127 : 32767;
-  // int absMin; //(AUDIO_FORMAT == AudioFormat.ENCODING_PCM_8BIT) ? 127 : 32767;
-
-  WavePainter(
-      {this.samples, this.color, this.context, this.localMax, this.localMin});
+  VUMeterPainter({
+    required this.sampleRaw,
+    required this.sampleSmth,
+    required this.peakHold,
+    required this.peakDetected,
+  });
 
   @override
-  void paint(Canvas canvas, Size? size) {
-    this.size = context!.size;
-    size = this.size;
-
-    Paint paint = Paint()
-      ..color = color!
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-
-    if (samples!.isEmpty) return;
-
-    points = toPoints(samples);
-
-    Path path = Path();
-    path.addPolygon(points, false);
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldPainting) => true;
-
-  // Maps a list of ints and their indices to a list of points on a cartesian grid
-  List<Offset> toPoints(List<int>? samples) {
-    List<Offset> points = [];
-    samples ??= List<int>.filled(size!.width.toInt(), (0.5).toInt());
-    double pixelsPerSample = size!.width / samples.length;
-    for (int i = 0; i < samples.length; i++) {
-      var point = Offset(
-          i * pixelsPerSample,
-          0.5 *
-              size!.height *
-              pow((samples[i] - localMin!) / (localMax! - localMin!), 5));
-      points.add(point);
+  void paint(Canvas canvas, Size size) {
+    final double maxVal = 255.0;
+    final double barHeight = size.height - 40; // Leave room for labels
+    final double barTop = 10;
+    
+    // Background
+    final bgPaint = Paint()..color = Colors.grey.shade900;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, barTop, size.width, barHeight),
+        const Radius.circular(4),
+      ),
+      bgPaint,
+    );
+    
+    // Gradient colour segments for the VU bar
+    double rawFraction = (sampleRaw / maxVal).clamp(0.0, 1.0);
+    double barWidth = size.width * rawFraction;
+    
+    // Draw the level bar with green->yellow->red gradient
+    if (barWidth > 0) {
+      final gradient = LinearGradient(
+        colors: [
+          Colors.green,
+          Colors.green,
+          Colors.yellow,
+          Colors.red,
+        ],
+        stops: const [0.0, 0.5, 0.75, 1.0],
+      );
+      final barRect = Rect.fromLTWH(0, barTop, barWidth, barHeight);
+      final gradientPaint = Paint()
+        ..shader = gradient.createShader(
+          Rect.fromLTWH(0, barTop, size.width, barHeight),
+        );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(barRect, const Radius.circular(4)),
+        gradientPaint,
+      );
     }
-    return points;
+    
+    // Smoothed level line (white vertical line)
+    double smthX = (sampleSmth / maxVal).clamp(0.0, 1.0) * size.width;
+    final smthPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.8)
+      ..strokeWidth = 2;
+    canvas.drawLine(
+      Offset(smthX, barTop),
+      Offset(smthX, barTop + barHeight),
+      smthPaint,
+    );
+    
+    // Peak hold marker (thin bright line)
+    double peakX = (peakHold / maxVal).clamp(0.0, 1.0) * size.width;
+    final peakPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 3;
+    canvas.drawLine(
+      Offset(peakX, barTop),
+      Offset(peakX, barTop + barHeight),
+      peakPaint,
+    );
+    
+    // Peak detected indicator
+    if (peakDetected) {
+      final dotPaint = Paint()..color = Colors.red;
+      canvas.drawCircle(
+        Offset(size.width - 12, barTop + 12),
+        8,
+        dotPaint,
+      );
+    }
+    
+    // Labels
+    final textStyle = TextStyle(color: Colors.grey.shade400, fontSize: 11);
+    _drawText(canvas, 'Raw: ${sampleRaw.toStringAsFixed(1)}', 
+              Offset(4, barTop + barHeight + 4), textStyle);
+    _drawText(canvas, 'Smooth: ${sampleSmth.toStringAsFixed(1)}',
+              Offset(size.width * 0.35, barTop + barHeight + 4), textStyle);
+    _drawText(canvas, 'Peak: ${peakHold.toStringAsFixed(1)}',
+              Offset(size.width * 0.7, barTop + barHeight + 4), textStyle);
   }
 
-  double project(int val, int max, double height) {
-    double waveHeight =
-        (max == 0) ? val.toDouble() : (val / max) * 0.5 * height;
-    return waveHeight + 0.5 * height;
+  void _drawText(Canvas canvas, String text, Offset offset, TextStyle style) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, offset);
   }
+
+  @override
+  bool shouldRepaint(VUMeterPainter old) => true;
 }
 
+/// Spectrum Analyser - 16 frequency bins as bars with major peak label
+class SpectrumPainter extends CustomPainter {
+  final List<int> fftBins;
+  final double majorPeak;
+
+  // Approximate frequency labels for the 16 bins
+  static const List<String> binLabels = [
+    '63', '88', '125', '175', '250', '350', '500', '700',
+    '1k', '1.4k', '2k', '2.8k', '4k', '5.6k', '8k', '11k',
+  ];
+
+  SpectrumPainter({required this.fftBins, required this.majorPeak});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (fftBins.isEmpty) return;
+    
+    final int binCount = fftBins.length;
+    final double spacing = 3;
+    final double labelHeight = 36; // Room for freq labels + peak text
+    final double barAreaHeight = size.height - labelHeight;
+    final double barWidth = (size.width - (binCount - 1) * spacing) / binCount;
+    
+    // Background
+    final bgPaint = Paint()..color = Colors.grey.shade900;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, size.width, barAreaHeight),
+        const Radius.circular(4),
+      ),
+      bgPaint,
+    );
+    
+    // Draw grid lines at 25%, 50%, 75%
+    final gridPaint = Paint()
+      ..color = Colors.grey.shade800
+      ..strokeWidth = 0.5;
+    for (double frac in [0.25, 0.5, 0.75]) {
+      double y = barAreaHeight * (1.0 - frac);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+    
+    // Colour gradient for bars (low freq = warm, high freq = cool)
+    final List<Color> barColors = List.generate(binCount, (i) {
+      double t = i / (binCount - 1);
+      return HSLColor.fromAHSL(1.0, 120 + t * 180, 0.8, 0.5).toColor();
+    });
+    
+    for (int i = 0; i < binCount; i++) {
+      double fraction = fftBins[i] / 255.0;
+      double barHeight = fraction * barAreaHeight;
+      double x = i * (barWidth + spacing);
+      double y = barAreaHeight - barHeight;
+      
+      final barPaint = Paint()..color = barColors[i];
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, y, barWidth, barHeight),
+          const Radius.circular(2),
+        ),
+        barPaint,
+      );
+      
+      // Frequency label below each bar
+      if (i < binLabels.length) {
+        final labelStyle = TextStyle(
+          color: Colors.grey.shade500, 
+          fontSize: 8,
+        );
+        final tp = TextPainter(
+          text: TextSpan(text: binLabels[i], style: labelStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(canvas, Offset(x + (barWidth - tp.width) / 2, barAreaHeight + 2));
+      }
+    }
+    
+    // Major peak frequency text
+    final peakStyle = TextStyle(color: Colors.cyan.shade300, fontSize: 12);
+    final peakTp = TextPainter(
+      text: TextSpan(
+        text: 'Peak: ${majorPeak.toStringAsFixed(0)} Hz',
+        style: peakStyle,
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    peakTp.paint(canvas, Offset(
+      (size.width - peakTp.width) / 2,
+      barAreaHeight + 18,
+    ));
+  }
+
+  @override
+  bool shouldRepaint(SpectrumPainter old) => true;
+}
+
+/// Statistics / Details page showing all packet field values
 class Statistics extends StatelessWidget {
   final bool isRecording;
   final DateTime? startTime;
+  final double sampleRaw;
+  final double sampleSmth;
+  final int peakDetected;
+  final int frameCounter;
+  final double fftMagnitude;
+  final double fftMajorPeak;
+  final int zeroCrossingCount;
 
-  final String url = "https://github.com/anarchuser/mic_stream";
-
-  const Statistics(this.isRecording, {super.key, this.startTime});
+  const Statistics(
+    this.isRecording, {
+    super.key,
+    this.startTime,
+    this.sampleRaw = 0,
+    this.sampleSmth = 0,
+    this.peakDetected = 0,
+    this.frameCounter = 0,
+    this.fftMagnitude = 0,
+    this.fftMajorPeak = 0,
+    this.zeroCrossingCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListView(children: <Widget>[
-      const ListTile(
-          leading: Icon(Icons.title),
-          title: Text("Microphone Streaming Example App")),
       ListTile(
         leading: const Icon(Icons.keyboard_voice),
-        title: Text((isRecording ? "Recording" : "Not recording")),
+        title: Text(isRecording ? "Recording" : "Not recording"),
+        subtitle: isRecording && startTime != null
+            ? Text('Duration: ${DateTime.now().difference(startTime!).toString().split('.').first}')
+            : null,
       ),
-      ListTile(
-          leading: const Icon(Icons.access_time),
-          title: Text((isRecording
-              ? DateTime.now().difference(startTime!).toString()
-              : "Not recording"))),
+      const Divider(),
+      const ListTile(
+        title: Text('Audio Sync Packet Data',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+      ),
+      _tile(Icons.volume_up, 'Sample Raw', sampleRaw.toStringAsFixed(2)),
+      _tile(Icons.trending_flat, 'Sample Smooth', sampleSmth.toStringAsFixed(2)),
+      _tile(Icons.flash_on, 'Peak Detected', peakDetected == 1 ? 'Yes' : 'No'),
+      _tile(Icons.countertops, 'Frame Counter', '$frameCounter'),
+      _tile(Icons.show_chart, 'FFT Magnitude', fftMagnitude.toStringAsFixed(2)),
+      _tile(Icons.music_note, 'Major Peak', '${fftMajorPeak.toStringAsFixed(1)} Hz'),
+      _tile(Icons.swap_horiz, 'Zero Crossings', '$zeroCrossingCount'),
     ]);
   }
-}
 
-Iterable<T> eachWithIndex<E, T>(
-    Iterable<T> items, E Function(int index, T item) f) {
-  var index = 0;
-
-  for (final item in items) {
-    f(index, item);
-    index = index + 1;
+  Widget _tile(IconData icon, String title, String value) {
+    return ListTile(
+      leading: Icon(icon, size: 20),
+      title: Text(title),
+      trailing: Text(value, style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
+      dense: true,
+    );
   }
-
-  return items;
 }

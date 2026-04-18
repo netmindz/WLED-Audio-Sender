@@ -15,9 +15,8 @@ void main() {
     expect(find.byIcon(Icons.keyboard_voice), findsOneWidget);
 
     // Verify bottom navigation tabs exist
-    expect(find.text('Sound Wave'), findsOneWidget);
-    expect(find.text('Intensity Wave'), findsOneWidget);
-    expect(find.text('Statistics'), findsOneWidget);
+    expect(find.text('Analyser'), findsOneWidget);
+    expect(find.text('Details'), findsOneWidget);
   });
 
   test('AudioSyncPacket produces exactly 44 bytes', () {
