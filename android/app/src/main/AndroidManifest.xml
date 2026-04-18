@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="net.netmindz.wled.sender">
    <application
-        android:label="wled_audio_sender"
+        android:label="WLED Audio Sender"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
