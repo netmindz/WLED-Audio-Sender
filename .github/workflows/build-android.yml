@@ -73,13 +73,14 @@ jobs:
           storeFile=release.keystore
           EOF
 
-      - name: Update version with epoch build number
+      - name: Update version with git hash and epoch build number
         run: |
           CURRENT_VERSION=$(awk '/^version:/ {print $2}' pubspec.yaml)
           BASE_VERSION=$(echo $CURRENT_VERSION | cut -d '+' -f 1)
+          SHORT_HASH=$(git rev-parse --short HEAD)
           BUILD_NUMBER=$(date +%s)
-          sed -i "s/^version:.*/version: ${BASE_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
-          echo "Updated version to ${BASE_VERSION}+${BUILD_NUMBER}"
+          sed -i "s/^version:.*/version: ${BASE_VERSION}-${SHORT_HASH}+${BUILD_NUMBER}/" pubspec.yaml
+          echo "Updated version to ${BASE_VERSION}-${SHORT_HASH}+${BUILD_NUMBER}"
 
       - name: Install dependencies
         run: flutter pub get
