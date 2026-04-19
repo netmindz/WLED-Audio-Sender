@@ -8,6 +8,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:fftea/fftea.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mic_stream/mic_stream.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +49,10 @@ class HomePageState extends State<HomePage>
   Stream? stream;
   RawDatagramSocket? socket;
   StreamSubscription? listener;
+
+  // Platform channels for internal audio capture
+  static const _audioCaptureMethod = MethodChannel('net.netmindz.wled.sender/audio_capture');
+  static const _audioStreamEvent = EventChannel('net.netmindz.wled.sender/audio_stream');
   
   // Settings (persisted)
   String multicastAddressStr = '239.0.0.1';
@@ -154,18 +159,6 @@ class HomePageState extends State<HomePage>
   Future<bool> _startListening() async {
     if (isRecording) return false;
 
-    // Explicitly request microphone permission
-    final status = await Permission.microphone.request();
-    if (!status.isGranted) {
-      if (status.isPermanentlyDenied) {
-        _showError('Microphone permission permanently denied. Please enable in Settings.');
-        openAppSettings();
-      } else {
-        _showError('Microphone permission denied.');
-      }
-      return false;
-    }
-
     try {
       RawDatagramSocket s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket = s;
@@ -175,15 +168,31 @@ class HomePageState extends State<HomePage>
       return false;
     }
 
+    if (audioSourceIndex == 1) {
+      // Internal audio via MediaProjection platform channel
+      return _startInternalCapture();
+    }
+
+    // Microphone capture via mic_stream
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (status.isPermanentlyDenied) {
+        _showError('Microphone permission permanently denied. Please enable in Settings.');
+        openAppSettings();
+      } else {
+        _showError('Microphone permission denied.');
+      }
+      socket?.close();
+      socket = null;
+      return false;
+    }
+
     // Disable mic_stream's own permission handling since we do it above
     MicStream.shouldRequestPermission(false);
 
     try {
-      final source = audioSourceIndex == 1
-          ? AudioSource.REMOTE_SUBMIX
-          : AudioSource.DEFAULT;
       stream = MicStream.microphone(
-          audioSource: source,
+          audioSource: AudioSource.DEFAULT,
           sampleRate: 22050,
           channelConfig: ChannelConfig.CHANNEL_IN_MONO,
           audioFormat: audioFormat);
@@ -214,8 +223,39 @@ class HomePageState extends State<HomePage>
     try {
       samplesPerSecond = (await MicStream.sampleRate.timeout(const Duration(seconds: 5))).toInt();
     } catch (_) {
-      samplesPerSecond = 44100; // fallback
+      samplesPerSecond = 22050; // fallback
     }
+    return true;
+  }
+
+  Future<bool> _startInternalCapture() async {
+    try {
+      await _audioCaptureMethod.invokeMethod('startCapture', {'sampleRate': 22050});
+    } catch (e) {
+      debugPrint('Failed to start internal audio capture: $e');
+      _showError('Failed to start internal audio capture: $e');
+      socket?.close();
+      socket = null;
+      return false;
+    }
+
+    samplesPerSecond = 22050;
+    setState(() {
+      isRecording = true;
+      startTime = DateTime.now();
+    });
+
+    // Listen to the event channel for PCM data
+    listener = _audioStreamEvent.receiveBroadcastStream().listen((data) {
+      if (data is List<int>) {
+        _calculateSamples(data);
+      }
+    }, onError: (e) {
+      debugPrint('Internal audio stream error: $e');
+      _showError('Internal audio capture error.');
+      _stopListening();
+    });
+
     return true;
   }
 
@@ -371,6 +411,11 @@ class HomePageState extends State<HomePage>
     listener?.cancel();
     socket?.close();
     socket = null;
+
+    // Stop internal audio capture if active
+    if (audioSourceIndex == 1) {
+      _audioCaptureMethod.invokeMethod('stopCapture').catchError((_) {});
+    }
 
     setState(() {
       isRecording = false;
