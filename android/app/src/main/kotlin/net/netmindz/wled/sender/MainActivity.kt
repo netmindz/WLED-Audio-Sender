@@ -3,7 +3,6 @@ package net.netmindz.wled.sender
 import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
-import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -41,6 +40,14 @@ class MainActivity : FlutterActivity() {
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     eventSink = events
+                    // Re-attach callback if service is already running (e.g. after activity recreation)
+                    if (AudioCaptureForegroundService.isRunning) {
+                        AudioCaptureForegroundService.onAudioData = { pcmData ->
+                            runOnUiThread {
+                                eventSink?.success(pcmData)
+                            }
+                        }
+                    }
                 }
 
                 override fun onCancel(arguments: Any?) {
@@ -90,8 +97,6 @@ class MainActivity : FlutterActivity() {
         stopService(serviceIntent)
     }
 
-    override fun onDestroy() {
-        stopCapture()
-        super.onDestroy()
-    }
+    // Do NOT stop capture on activity destroy — the foreground service should
+    // keep running. Capture only stops when the user explicitly taps stop.
 }

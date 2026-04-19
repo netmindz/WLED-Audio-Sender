@@ -20,6 +20,8 @@ class AudioCaptureForegroundService : Service() {
         private const val CHANNEL_ID = "audio_capture_channel"
         private const val NOTIFICATION_ID = 1
         var onAudioData: ((ByteArray) -> Unit)? = null
+        @Volatile
+        var isRunning = false
     }
 
     private var audioRecord: AudioRecord? = null
@@ -88,6 +90,7 @@ class AudioCaptureForegroundService : Service() {
                 .build()
 
             isCapturing = true
+            isRunning = true
             audioRecord?.startRecording()
 
             captureThread = Thread {
@@ -112,6 +115,7 @@ class AudioCaptureForegroundService : Service() {
 
     override fun onDestroy() {
         isCapturing = false
+        isRunning = false
         captureThread?.join(1000)
         captureThread = null
         try { audioRecord?.stop() } catch (_: Exception) {}
