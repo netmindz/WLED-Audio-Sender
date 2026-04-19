@@ -17,7 +17,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private var methodResult: MethodChannel.Result? = null
-    private var audioCaptureService: AudioCaptureService? = null
     private var eventSink: EventChannel.EventSink? = null
     private var pendingSampleRate: Int = 22050
 
@@ -61,7 +60,15 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == Activity.RESULT_OK && data != null) {
-                // Start the foreground service with the projection data
+                // Set up the callback before starting the service
+                AudioCaptureForegroundService.onAudioData = { pcmData ->
+                    runOnUiThread {
+                        eventSink?.success(pcmData)
+                    }
+                }
+
+                // Start the foreground service — it will create MediaProjection
+                // AFTER startForeground() is called (required on Android 14+)
                 val serviceIntent = Intent(this, AudioCaptureForegroundService::class.java).apply {
                     putExtra("resultCode", resultCode)
                     putExtra("data", data)
@@ -69,13 +76,6 @@ class MainActivity : FlutterActivity() {
                 }
                 startForegroundService(serviceIntent)
 
-                // Create the audio capture service
-                audioCaptureService = AudioCaptureService(this, resultCode, data, pendingSampleRate) { pcmData ->
-                    runOnUiThread {
-                        eventSink?.success(pcmData)
-                    }
-                }
-                audioCaptureService?.start()
                 methodResult?.success(true)
             } else {
                 methodResult?.error("PERMISSION_DENIED", "User denied screen capture permission", null)
@@ -85,8 +85,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopCapture() {
-        audioCaptureService?.stop()
-        audioCaptureService = null
+        AudioCaptureForegroundService.onAudioData = null
         val serviceIntent = Intent(this, AudioCaptureForegroundService::class.java)
         stopService(serviceIntent)
     }
